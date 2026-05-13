@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Estoque Fazendas</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <template id="modal-template">
+      <div class="modal-backdrop" data-close-modal>
+        <form class="modal" data-modal-form>
+          <div class="modal__header">
+            <h2 data-modal-title></h2>
+            <button class="icon-button" type="button" data-close-modal aria-label="Fechar">x</button>
+          </div>
+          <div class="modal__body" data-modal-body></div>
+          <div class="modal__footer">
+            <button class="button button--ghost" type="button" data-close-modal>Cancelar</button>
+            <button class="button button--primary" type="submit" data-modal-submit>Salvar</button>
+          </div>
+        </form>
+      </div>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>

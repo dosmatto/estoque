@@ -111,7 +111,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     data.products = (data.products || []).map((product) => ({
       ...product,
       category: product.category === "TS" ? "Tratamento de Semente" : product.category,
-      unit: product.unit === "L" ? "L / Kg" : productUnit(product)
+      unit: product.unit === "L" ? "L / Kg" : productUnit(product),
+      defaultDose: parseDecimal(product.defaultDose) || 0
     }));
     data.farms = data.farms || [];
     data.movements = data.movements || [];
@@ -253,6 +254,14 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     return Number(farm.doses[productId] || 0);
   }
 
+  function productDefaultDose(product) {
+    return parseDecimal(product.defaultDose) || 0;
+  }
+
+  function effectiveDose(farm, product) {
+    return getDose(farm, product.id) || productDefaultDose(product);
+  }
+
   function setDose(farm, productId, dose) {
     ensureFarmData(farm);
     if (dose && dose > 0) {
@@ -287,7 +296,9 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       .map((product) => ({
         ...product,
         qty: getStockQty(farm, product.id),
-        dose: getDose(farm, product.id),
+        dose: effectiveDose(farm, product),
+        farmDose: getDose(farm, product.id),
+        defaultDose: productDefaultDose(product),
         unit: productUnit(product)
       }))
       .filter((product) => product.qty > 0)
@@ -475,7 +486,11 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             <div class="list-row" style="--category-color: ${categoryColor(product.category)}">
               <div>
                 <div class="list-row__title">${product.name}</div>
-                <div class="list-row__meta"><span class="badge">${product.category}</span> <span class="badge">${productUnit(product)}</span></div>
+                <div class="list-row__meta">
+                  <span class="badge">${product.category}</span>
+                  <span class="badge">${productUnit(product)}</span>
+                  ${productDefaultDose(product) ? `<span class="badge">Dose ${formatQty(productDefaultDose(product))} ${productUnit(product)}/ha</span>` : ""}
+                </div>
               </div>
               <strong>${formatQty(product.total)} ${productUnit(product)}</strong>
             </div>
@@ -505,9 +520,16 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             <div class="list-row" style="--category-color: ${categoryColor(product.category)}">
               <div>
                 <div class="list-row__title">${product.name}</div>
-                <div class="list-row__meta"><span class="badge">${product.category}</span> <span class="badge">${productUnit(product)}</span></div>
+                <div class="list-row__meta">
+                  <span class="badge">${product.category}</span>
+                  <span class="badge">${productUnit(product)}</span>
+                  ${productDefaultDose(product) ? `<span class="badge">Dose ${formatQty(productDefaultDose(product))} ${productUnit(product)}/ha</span>` : ""}
+                </div>
               </div>
-              <button class="button button--ghost" data-action="edit-product" data-product-id="${product.id}">Editar</button>
+              <div class="list-row__actions">
+                <button class="button button--ghost" data-action="edit-product" data-product-id="${product.id}">Editar</button>
+                <button class="button button--warning" data-action="merge-product" data-product-id="${product.id}">Unificar</button>
+              </div>
             </div>
           `).join("")}
         </div>
@@ -675,6 +697,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           ${rows.map((item) => {
             const product = state.products.find((candidate) => candidate.id === item.productId);
             const unit = product ? productUnit(product) : "";
+            const doseSourceText = item.doseSource === "padrao" ? " - dose padrão" : "";
             const valueText = item.type === "dose"
               ? (item.dose ? `${formatQty(item.dose)} ${unit}/ha` : "Dose removida")
               : `${item.type === "saida" ? "-" : item.type === "entrada" ? "+" : ""}${formatQty(item.quantity)} ${unit}`;
@@ -682,7 +705,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
               <div class="list-row">
                 <div>
                   <div class="list-row__title">${product?.name || "Produto removido"}</div>
-                  <div class="list-row__meta">${formatDate(item.createdAt)} - ${item.type}</div>
+                  <div class="list-row__meta">${formatDate(item.createdAt)} - ${item.type}${doseSourceText}</div>
                 </div>
                 <strong>${valueText}</strong>
               </div>
@@ -736,6 +759,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         <select name="unit" required>
           ${units.map((unit) => `<option value="${unit}" ${productUnit(product) === unit ? "selected" : ""}>${unit}</option>`).join("")}
         </select>
+      </label>
+      <label class="field">
+        <span>Dose padrão por hectare (opcional)</span>
+        <input name="defaultDose" type="text" inputmode="decimal" pattern="[0-9]+([,.][0-9]+)?" value="${productDefaultDose(product) ? formatQty(productDefaultDose(product)) : ""}" placeholder="Ex: 0,5">
       </label>
     `;
   }
@@ -800,6 +827,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             ${units.map((unit) => `<option value="${unit}">${unit}</option>`).join("")}
           </select>
         </label>
+        <label class="field">
+          <span>Dose padrão por hectare (opcional)</span>
+          <input name="newProductDefaultDose" type="text" inputmode="decimal" pattern="[0-9]+([,.][0-9]+)?" data-new-product disabled placeholder="Ex: 0,5">
+        </label>
       </div>
       <label class="field">
         <span>Quantidade inicial</span>
@@ -827,20 +858,56 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     });
   }
 
-  function findOrCreateProduct(name, category, unit) {
+  function findOrCreateProduct(name, category, unit, defaultDose) {
     const normalizedName = name.trim().toUpperCase();
+    const parsedDefaultDose = parseDecimal(defaultDose) || 0;
     const existing = state.products.find(
       (product) => product.name.toUpperCase() === normalizedName && product.category === category
     );
 
     if (existing) {
       existing.unit = unit || productUnit(existing);
+      if (parsedDefaultDose) existing.defaultDose = parsedDefaultDose;
       return existing;
     }
 
-    const product = { id: makeId("prod"), name: normalizedName, category, unit: unit || "L" };
+    const product = {
+      id: makeId("prod"),
+      name: normalizedName,
+      category,
+      unit: unit || "L / Kg",
+      defaultDose: parsedDefaultDose
+    };
     state.products.push(product);
     return product;
+  }
+
+  function mergeProductInto({ sourceProductId, targetProductId }) {
+    if (!sourceProductId || !targetProductId || sourceProductId === targetProductId) return;
+
+    const sourceProduct = state.products.find((product) => product.id === sourceProductId);
+    const targetProduct = state.products.find((product) => product.id === targetProductId);
+    if (!sourceProduct || !targetProduct) return;
+
+    state.farms.forEach((farm) => {
+      ensureFarmData(farm);
+      const sourceQty = getStockQty(farm, sourceProductId);
+      const targetQty = getStockQty(farm, targetProductId);
+      const sourceDose = getDose(farm, sourceProductId);
+      const targetDose = getDose(farm, targetProductId);
+
+      if (sourceQty) setStockQty(farm, targetProductId, targetQty + sourceQty);
+      delete farm.stock[sourceProductId];
+
+      if (!targetDose && sourceDose) setDose(farm, targetProductId, sourceDose);
+      delete farm.doses[sourceProductId];
+    });
+
+    state.movements.forEach((movement) => {
+      if (movement.productId === sourceProductId) movement.productId = targetProductId;
+    });
+
+    state.products = state.products.filter((product) => product.id !== sourceProductId);
   }
 
   function updateDose({ farmId, productId, dose }) {
@@ -854,7 +921,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       productId,
       type: "dose",
       quantity: parsedDose || 0,
-      dose: parsedDose,
+      dose: parsedDose || null,
+      doseSource: typedDose !== null ? "fazenda" : parsedDose ? "padrao" : "",
       previousQuantity: getStockQty(farm, productId),
       nextQuantity: getStockQty(farm, productId),
       note: "Dose editada",
@@ -864,9 +932,11 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   function addMovement({ farmId, productId, type, quantity, dose, note }) {
     const farm = state.farms.find((item) => item.id === farmId);
+    const product = state.products.find((item) => item.id === productId);
     const currentQty = getStockQty(farm, productId);
     const parsedQty = parseDecimal(quantity) || 0;
-    const parsedDose = parseDecimal(dose);
+    const typedDose = parseDecimal(dose);
+    const parsedDose = typedDose !== null ? typedDose : productDefaultDose(product || {});
     let nextQty = currentQty;
 
     if (type === "entrada") nextQty += parsedQty;
@@ -874,7 +944,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (type === "edicao") nextQty = parsedQty;
 
     setStockQty(farm, productId, nextQty);
-    if (parsedDose !== null) setDose(farm, productId, parsedDose);
+    if (parsedDose) setDose(farm, productId, parsedDose);
     state.movements.push({
       id: makeId("mov"),
       farmId,
@@ -985,7 +1055,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         submitLabel: "Adicionar",
         fields: fieldsForProduct(),
         onSubmit(data) {
-          state.products.push({ id: makeId("prod"), name: data.name.trim().toUpperCase(), category: data.category, unit: data.unit });
+          state.products.push({
+            id: makeId("prod"),
+            name: data.name.trim().toUpperCase(),
+            category: data.category,
+            unit: data.unit,
+            defaultDose: parseDecimal(data.defaultDose) || 0
+          });
         }
       });
     }
@@ -999,6 +1075,57 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           product.name = data.name.trim().toUpperCase();
           product.category = data.category;
           product.unit = data.unit;
+          product.defaultDose = parseDecimal(data.defaultDose) || 0;
+        }
+      });
+    }
+
+    if (action === "merge-product") {
+      const sourceProduct = state.products.find((item) => item.id === button.dataset.productId);
+      const candidates = state.products
+        .filter((item) => item.id !== sourceProduct.id)
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
+      if (candidates.length === 0) {
+        openModal({
+          title: "Não há produtos para unificar",
+          submitLabel: "Entendi",
+          fields: `<div class="empty">Cadastre outro produto antes de unificar.</div>`,
+          onSubmit() {}
+        });
+        return;
+      }
+
+      openModal({
+        title: "Unificar produto",
+        submitLabel: "Unificar definitivamente",
+        fields: `
+          <div class="field">
+            <label>Produto que será removido</label>
+            <div class="panel__hint">${sourceProduct.name}</div>
+          </div>
+          <label class="field">
+            <span>Produto padrão que será mantido</span>
+            <select name="targetProductId" required>
+              ${candidates.map((product) => `<option value="${product.id}">${product.name} - ${product.category} - ${productUnit(product)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span>Confirmação</span>
+            <input name="confirmation" required placeholder="UNIFICAR">
+          </label>
+          <div class="panel__hint">O estoque, doses e histórico do produto removido serão transferidos para o produto padrão. Para confirmar, digite UNIFICAR.</div>
+        `,
+        onSubmit(data) {
+          if (String(data.confirmation || "").trim().toUpperCase() !== "UNIFICAR") {
+            alert("Unificação cancelada. A confirmação precisa ser UNIFICAR.");
+            return;
+          }
+
+          mergeProductInto({
+            sourceProductId: sourceProduct.id,
+            targetProductId: data.targetProductId
+          });
         }
       });
     }
@@ -1056,7 +1183,12 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           let productId = data.productId;
 
           if (data.productMode === "new") {
-            const product = findOrCreateProduct(data.newProductName, data.newProductCategory, data.newProductUnit);
+            const product = findOrCreateProduct(
+              data.newProductName,
+              data.newProductCategory,
+              data.newProductUnit,
+              data.newProductDefaultDose
+            );
             productId = product.id;
           }
 

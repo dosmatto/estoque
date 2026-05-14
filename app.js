@@ -308,6 +308,106 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       .filter((product) => product.qty > 0);
   }
 
+  function reportProductsForFarm(farm) {
+    return state.products
+      .map((product) => ({
+        ...product,
+        qty: getStockQty(farm, product.id),
+        dose: effectiveDose(farm, product),
+        unit: productUnit(product)
+      }))
+      .filter((product) => product.qty > 0)
+      .sort((a, b) => a.category.localeCompare(b.category, "pt-BR") || a.name.localeCompare(b.name, "pt-BR"));
+  }
+
+  function reportHtml(farms) {
+    const generatedAt = new Date().toLocaleString("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short"
+    });
+
+    const farmSections = farms.map((farm) => {
+      const rows = reportProductsForFarm(farm);
+      const body = rows.map((product) => {
+        const hectares = hectaresFor(product.qty, product.dose);
+        return `
+          <tr>
+            <td>${escapeHtml(product.category)}</td>
+            <td>${escapeHtml(product.name)}</td>
+            <td>${formatQty(product.qty)} ${escapeHtml(productUnit(product))}</td>
+            <td>${product.dose ? `${formatQty(product.dose)} ${escapeHtml(productUnit(product))}/ha` : "-"}</td>
+            <td>${hectares === null ? "-" : `${formatQty(hectares)} ha`}</td>
+          </tr>
+        `;
+      }).join("");
+
+      return `
+        <section>
+          <h2>${escapeHtml(farm.name)}</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Categoria</th>
+                <th>Produto</th>
+                <th>Quantidade</th>
+                <th>Dose</th>
+                <th>Área estimada</th>
+              </tr>
+            </thead>
+            <tbody>${body || `<tr><td colspan="5">Sem produtos em estoque.</td></tr>`}</tbody>
+          </table>
+        </section>
+      `;
+    }).join("");
+
+    return `
+      <!doctype html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8">
+          <title>Relatório de Estoque</title>
+          <style>
+            body { color: #172018; font-family: Arial, Helvetica, sans-serif; margin: 28px; }
+            h1 { margin: 0 0 6px; font-size: 24px; }
+            h2 { margin: 24px 0 10px; font-size: 18px; }
+            p { color: #657065; margin: 0 0 18px; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #dce4da; padding: 8px; text-align: left; }
+            th { background: #eef3ed; }
+            @media print { button { display: none; } body { margin: 12mm; } }
+          </style>
+        </head>
+        <body>
+          <button onclick="window.print()">Imprimir / Salvar PDF</button>
+          <h1>Relatório de Estoque</h1>
+          <p>Gerado em ${escapeHtml(generatedAt)}</p>
+          ${farmSections}
+        </body>
+      </html>
+    `;
+  }
+
+  function openReport(farms) {
+    const reportWindow = window.open("", "_blank");
+    if (!reportWindow) {
+      alert("O navegador bloqueou o relatório. Permita pop-ups para este site e tente novamente.");
+      return;
+    }
+
+    reportWindow.document.open();
+    reportWindow.document.write(reportHtml(farms));
+    reportWindow.document.close();
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
   function producerUrl(farm) {
     const base = `${window.location.origin}${window.location.pathname}`;
     return `${base}?fazenda=${farm.token}`;
@@ -390,6 +490,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           ${tabButton("estoque", "Estoque da fazenda")}
           ${tabButton("consolidado", "Consolidado")}
           ${tabButton("produtos", "Lista mestre")}
+          ${tabButton("relatorios", "Relatórios")}
         </nav>
         ${renderAdminTab()}
       `
@@ -404,6 +505,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (currentTab === "estoque") return renderFarmStockAdmin();
     if (currentTab === "consolidado") return renderConsolidated();
     if (currentTab === "produtos") return renderMasterProducts();
+    if (currentTab === "relatorios") return renderReports();
     return renderFarms();
   }
 
@@ -567,16 +669,46 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     `;
   }
 
+  function renderReports() {
+    return `
+      <section class="panel">
+        <div class="panel__header">
+          <div>
+            <h2 class="panel__title">Relatórios</h2>
+            <p class="panel__hint">Escolha uma ou mais fazendas para gerar a relação de produtos em estoque.</p>
+          </div>
+          <button class="button button--primary" data-action="generate-admin-report">Gerar relatório</button>
+        </div>
+        <div class="report-options">
+          <label class="checkbox-row">
+            <input type="checkbox" data-report-all checked>
+            <span>Todas as fazendas</span>
+          </label>
+          <div class="checkbox-list" data-report-farms>
+            ${state.farms.map((farm) => `
+              <label class="checkbox-row">
+                <input type="checkbox" name="reportFarmId" value="${farm.id}" checked>
+                <span>${farm.name}</span>
+              </label>
+            `).join("") || `<div class="empty">Nenhuma fazenda cadastrada.</div>`}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
   function renderProducer(farm) {
     renderShell({
       title: farm.name,
       subtitle: "Controle de estoque da fazenda",
       actions: `
         <button class="button button--primary" data-action="add-product-farm" data-farm-id="${farm.id}">+ Adicionar produto</button>
+        <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
       `,
       content: `
         <section class="panel quick-actions">
           <button class="button button--primary" data-action="add-product-farm" data-farm-id="${farm.id}">+ Adicionar produto</button>
+          <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
         </section>
         ${renderFilters()}
         ${renderStockSummary(farm)}
@@ -1098,6 +1230,26 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       });
     }
 
+    if (action === "generate-admin-report") {
+      const allCheckbox = document.querySelector("[data-report-all]");
+      const farmIds = allCheckbox?.checked
+        ? state.farms.map((farm) => farm.id)
+        : Array.from(document.querySelectorAll('input[name="reportFarmId"]:checked')).map((input) => input.value);
+      const farms = state.farms.filter((farm) => farmIds.includes(farm.id));
+
+      if (!farms.length) {
+        alert("Selecione pelo menos uma fazenda para gerar o relatório.");
+        return;
+      }
+
+      openReport(farms);
+    }
+
+    if (action === "generate-farm-report") {
+      const farm = state.farms.find((item) => item.id === button.dataset.farmId);
+      if (farm) openReport([farm]);
+    }
+
     if (action === "open-farm-admin") {
       selectedFarmId = button.dataset.farmId;
       currentTab = "estoque";
@@ -1316,6 +1468,18 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (event.target.matches('[data-action="select-farm"]')) {
       selectedFarmId = event.target.value;
       route();
+    }
+
+    if (event.target.matches("[data-report-all]")) {
+      document.querySelectorAll('input[name="reportFarmId"]').forEach((input) => {
+        input.checked = event.target.checked;
+      });
+    }
+
+    if (event.target.matches('input[name="reportFarmId"]')) {
+      const farmInputs = Array.from(document.querySelectorAll('input[name="reportFarmId"]'));
+      const allCheckbox = document.querySelector("[data-report-all]");
+      if (allCheckbox) allCheckbox.checked = farmInputs.every((input) => input.checked);
     }
   });
 

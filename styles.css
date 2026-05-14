@@ -362,6 +362,12 @@ button {
   overflow: auto;
 }
 
+.report-options {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
 .checkbox-row {
   display: flex;
   align-items: flex-start;

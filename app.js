@@ -1,6 +1,9 @@
+import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
+
 (function () {
   const STORAGE_KEY = "estoque-fazendas-prototipo-v1";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
+  const FIREBASE_DOC_PATH = ["appState", "main"];
 
   const categories = [
     { name: "Adjuvante", color: "#9aa0a6" },
@@ -57,6 +60,12 @@
   let currentTab = "fazendas";
   let currentFilter = "Todos";
   let selectedFarmId = state.farms[0]?.id || null;
+  let remoteReady = false;
+  let applyingRemoteState = false;
+  let remoteDocRef = null;
+  let setRemoteDoc = null;
+  let remoteServerTimestamp = null;
+  let saveTimer = null;
 
   function createInitialState() {
     const farmId = makeId("farm");
@@ -110,7 +119,69 @@
   }
 
   function saveState() {
+    state = normalizeState(state);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+    if (!remoteReady || applyingRemoteState || !remoteDocRef || !setRemoteDoc) return;
+
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      setRemoteDoc(remoteDocRef, {
+        state,
+        updatedAt: remoteServerTimestamp()
+      }, { merge: true }).catch((error) => {
+        console.error("Erro ao salvar no Firebase:", error);
+      });
+    }, 250);
+  }
+
+  async function initFirebaseSync() {
+    if (!USE_FIREBASE) return;
+
+    try {
+      const [{ initializeApp }, firestore] = await Promise.all([
+        import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js"),
+        import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js")
+      ]);
+      const { getFirestore, doc, setDoc, onSnapshot, serverTimestamp } = firestore;
+      const firebaseApp = initializeApp(firebaseConfig);
+      const db = getFirestore(firebaseApp);
+
+      setRemoteDoc = setDoc;
+      remoteServerTimestamp = serverTimestamp;
+      remoteDocRef = doc(db, ...FIREBASE_DOC_PATH);
+
+      onSnapshot(remoteDocRef, async (snapshot) => {
+        if (!snapshot.exists()) {
+          remoteReady = true;
+          await setDoc(remoteDocRef, {
+            state: normalizeState(state),
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+          return;
+        }
+
+        const remoteState = snapshot.data()?.state;
+        if (!remoteState) {
+          remoteReady = true;
+          return;
+        }
+
+        applyingRemoteState = true;
+        state = normalizeState(remoteState);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        if (!state.farms.some((farm) => farm.id === selectedFarmId)) {
+          selectedFarmId = state.farms[0]?.id || null;
+        }
+        applyingRemoteState = false;
+        remoteReady = true;
+        route();
+      }, (error) => {
+        console.error("Erro ao escutar Firebase:", error);
+      });
+    } catch (error) {
+      console.error("Firebase não configurado ou indisponível:", error);
+    }
   }
 
   function makeId(prefix) {
@@ -273,7 +344,6 @@
       subtitle: "Admin mestre do protótipo local",
       actions: `
         <button class="button button--primary" data-action="new-farm">+ Nova Fazenda</button>
-        <button class="button button--ghost" data-action="reset-demo">Reiniciar demo</button>
       `,
       content: `
         <nav class="tabs" aria-label="Telas do admin">
@@ -950,14 +1020,6 @@
       });
     }
 
-    if (action === "reset-demo") {
-      state = createInitialState();
-      selectedFarmId = state.farms[0].id;
-      currentTab = "fazendas";
-      currentFilter = "Todos";
-      saveState();
-      route();
-    }
   });
 
   document.addEventListener("change", (event) => {
@@ -972,4 +1034,5 @@
   });
 
   route();
+  initFirebaseSync();
 })();

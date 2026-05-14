@@ -65,6 +65,17 @@ button {
   gap: 2px;
 }
 
+.app-version {
+  width: fit-content;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--primary-strong);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .brand__title {
   margin: 0;
   font-size: 1.25rem;

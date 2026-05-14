@@ -112,7 +112,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       ...product,
       category: product.category === "TS" ? "Tratamento de Semente" : product.category,
       unit: product.unit === "L" ? "L / Kg" : productUnit(product),
-      defaultDose: parseDecimal(product.defaultDose) || 0
+      defaultDose: parseDecimal(product.defaultDose) || 0,
+      similarProductIds: Array.isArray(product.similarProductIds) ? product.similarProductIds : []
     }));
     data.farms = data.farms || [];
     data.movements = data.movements || [];
@@ -279,6 +280,31 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   function productUnit(product) {
     return units.includes(product.unit) ? product.unit : "L / Kg";
+  }
+
+  function getSimilarProducts(productId) {
+    const product = state.products.find((item) => item.id === productId);
+    const ids = new Set(product?.similarProductIds || []);
+
+    state.products.forEach((candidate) => {
+      if ((candidate.similarProductIds || []).includes(productId)) ids.add(candidate.id);
+    });
+
+    ids.delete(productId);
+    return state.products
+      .filter((candidate) => ids.has(candidate.id))
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }
+
+  function farmSimilarProducts(farm, productId) {
+    return getSimilarProducts(productId)
+      .map((product) => ({
+        ...product,
+        qty: getStockQty(farm, product.id),
+        dose: effectiveDose(farm, product),
+        unit: productUnit(product)
+      }))
+      .filter((product) => product.qty > 0);
   }
 
   function producerUrl(farm) {
@@ -524,10 +550,12 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
                   <span class="badge">${product.category}</span>
                   <span class="badge">${productUnit(product)}</span>
                   ${productDefaultDose(product) ? `<span class="badge">Dose ${formatQty(productDefaultDose(product))} ${productUnit(product)}/ha</span>` : ""}
+                  ${getSimilarProducts(product.id).length ? `<span class="badge">${getSimilarProducts(product.id).length} similar(es)</span>` : ""}
                 </div>
               </div>
               <div class="list-row__actions">
                 <button class="button button--ghost" data-action="edit-product" data-product-id="${product.id}">Editar</button>
+                <button class="button button--ghost" data-action="edit-similar-products" data-product-id="${product.id}">Similares</button>
                 <button class="button button--warning" data-action="merge-product" data-product-id="${product.id}">Unificar</button>
               </div>
             </div>
@@ -644,6 +672,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   function renderProductCard(product, farm) {
     const hectares = hectaresFor(product.qty, product.dose);
     const unit = productUnit(product);
+    const similarProducts = farmSimilarProducts(farm, product.id);
     return `
       <article class="product-card" style="--category-color: ${categoryColor(product.category)}">
         <div class="product-card__header">
@@ -668,6 +697,22 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             </div>
           </div>
         </div>
+        ${similarProducts.length ? `
+          <div class="similar-box">
+            <div class="metric__label">Produtos similares no estoque</div>
+            <div class="similar-list">
+              ${similarProducts.map((similar) => {
+                const similarHectares = hectaresFor(similar.qty, similar.dose);
+                return `
+                  <div class="similar-row">
+                    <span>${similar.name}</span>
+                    <strong>${formatQty(similar.qty)} ${productUnit(similar)}${similarHectares === null ? "" : ` - ${formatQty(similarHectares)} ha`}</strong>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        ` : ""}
         <div class="product-card__actions">
           <button class="button button--primary" data-action="move" data-type="entrada" data-farm-id="${farm.id}" data-product-id="${product.id}">+ Entrada</button>
           <button class="button button--warning" data-action="move" data-type="saida" data-farm-id="${farm.id}" data-product-id="${product.id}">- Saída</button>
@@ -730,7 +775,12 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
     node.querySelector("[data-modal-form]").addEventListener("submit", (event) => {
       event.preventDefault();
-      const data = Object.fromEntries(new FormData(event.currentTarget));
+      const formData = new FormData(event.currentTarget);
+      const data = Object.fromEntries(formData);
+      for (const key of formData.keys()) {
+        const values = formData.getAll(key);
+        if (values.length > 1) data[key] = values;
+      }
       onSubmit(data);
       saveState();
       node.remove();
@@ -855,6 +905,51 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     form.querySelectorAll("[data-new-product]").forEach((input) => {
       input.disabled = mode !== "new";
       input.required = mode === "new";
+    });
+  }
+
+  function similarProductsFields(product) {
+    const selectedIds = new Set(getSimilarProducts(product.id).map((item) => item.id));
+    const candidates = state.products
+      .filter((item) => item.id !== product.id)
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
+    return `
+      <div class="field">
+        <label>${product.name}</label>
+        <div class="panel__hint">Marque produtos que podem ser usados como alternativa ou são equivalentes no estoque.</div>
+      </div>
+      <div class="checkbox-list">
+        ${candidates.map((candidate) => `
+          <label class="checkbox-row">
+            <input type="checkbox" name="similarProductIds" value="${candidate.id}" ${selectedIds.has(candidate.id) ? "checked" : ""}>
+            <span>${candidate.name} - ${candidate.category} - ${productUnit(candidate)}</span>
+          </label>
+        `).join("") || `<div class="empty">Nenhum outro produto cadastrado.</div>`}
+      </div>
+    `;
+  }
+
+  function updateSimilarProducts(productId, similarProductIds) {
+    const ids = Array.isArray(similarProductIds)
+      ? similarProductIds
+      : similarProductIds
+        ? [similarProductIds]
+        : [];
+    const selected = new Set(ids.filter((id) => id && id !== productId));
+
+    state.products.forEach((product) => {
+      const current = new Set(product.similarProductIds || []);
+
+      if (product.id === productId) {
+        product.similarProductIds = Array.from(selected);
+        return;
+      }
+
+      if (selected.has(product.id)) current.add(productId);
+      else current.delete(productId);
+
+      product.similarProductIds = Array.from(current);
     });
   }
 
@@ -1076,6 +1171,18 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           product.category = data.category;
           product.unit = data.unit;
           product.defaultDose = parseDecimal(data.defaultDose) || 0;
+        }
+      });
+    }
+
+    if (action === "edit-similar-products") {
+      const product = state.products.find((item) => item.id === button.dataset.productId);
+      openModal({
+        title: "Produtos similares",
+        submitLabel: "Salvar similares",
+        fields: similarProductsFields(product),
+        onSubmit(data) {
+          updateSimilarProducts(product.id, data.similarProductIds);
         }
       });
     }

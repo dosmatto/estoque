@@ -314,6 +314,56 @@ button {
   grid-column: 1 / -1;
 }
 
+.similar-box {
+  margin: 14px 0 0 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fbfcfa;
+}
+
+.similar-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.similar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.88rem;
+}
+
+.similar-row span {
+  overflow-wrap: anywhere;
+}
+
+.similar-row strong {
+  white-space: nowrap;
+}
+
+.checkbox-list {
+  display: grid;
+  gap: 8px;
+  max-height: 42vh;
+  overflow: auto;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.checkbox-row input {
+  margin-top: 3px;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -450,6 +500,13 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
+}
+
+.list-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .list-row__title {
@@ -613,6 +670,14 @@ button {
   .list-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .list-row__actions {
+    justify-content: stretch;
+  }
+
+  .list-row__actions .button {
+    flex: 1 1 auto;
   }
 
   .panel__actions {

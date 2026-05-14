@@ -583,6 +583,20 @@ button {
     flex: 1 1 auto;
   }
 
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+    gap: 10px;
+  }
+
+  .tab {
+    width: 100%;
+    min-height: 46px;
+    padding: 0 10px;
+    white-space: normal;
+  }
+
   .summary-grid,
   .farm-grid {
     grid-template-columns: 1fr;

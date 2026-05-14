@@ -11,7 +11,7 @@
     { name: "Tratamento de Semente", color: "#8b69c6" }
   ];
 
-  const units = ["L", "Kg"];
+  const units = ["L / Kg", "L", "Kg"];
 
   const starterProducts = [
     ["FORSPRAY", "Adjuvante", 9],
@@ -64,7 +64,7 @@
       id: makeId("prod"),
       name,
       category,
-      unit: "L"
+      unit: "L / Kg"
     }));
 
     const stock = Object.fromEntries(
@@ -101,7 +101,8 @@
   function normalizeState(data) {
     data.products = (data.products || []).map((product) => ({
       ...product,
-      category: product.category === "TS" ? "Tratamento de Semente" : product.category
+      category: product.category === "TS" ? "Tratamento de Semente" : product.category,
+      unit: product.unit === "L" ? "L / Kg" : productUnit(product)
     }));
     data.farms = data.farms || [];
     data.movements = data.movements || [];
@@ -197,7 +198,7 @@
   }
 
   function productUnit(product) {
-    return units.includes(product.unit) ? product.unit : "L";
+    return units.includes(product.unit) ? product.unit : "L / Kg";
   }
 
   function producerUrl(farm) {

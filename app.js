@@ -4,7 +4,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const STORAGE_KEY = "estoque-fazendas-prototipo-v1";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.1.1";
+  const APP_VERSION = "V.1.2";
 
   const categories = [
     { name: "Adjuvante", color: "#9aa0a6" },

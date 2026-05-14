@@ -376,11 +376,17 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             table { border-collapse: collapse; width: 100%; }
             th, td { border: 1px solid #dce4da; padding: 8px; text-align: left; }
             th { background: #eef3ed; }
-            @media print { button { display: none; } body { margin: 12mm; } }
+            .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+            button { min-height: 42px; border: 1px solid #dce4da; border-radius: 8px; background: #fff; color: #172018; padding: 0 14px; font: inherit; font-weight: 700; }
+            .primary { background: #1f7a4d; color: #fff; border-color: #1f7a4d; }
+            @media print { .actions { display: none; } body { margin: 12mm; } }
           </style>
         </head>
         <body>
-          <button onclick="window.print()">Imprimir / Salvar PDF</button>
+          <div class="actions">
+            <button onclick="window.close(); if (!window.closed) history.back();">Voltar</button>
+            <button class="primary" onclick="window.print()">Imprimir / Salvar PDF</button>
+          </div>
           <h1>Relatório de Estoque</h1>
           <p>Gerado em ${escapeHtml(generatedAt)}</p>
           ${farmSections}

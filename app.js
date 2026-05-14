@@ -4,7 +4,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const STORAGE_KEY = "estoque-fazendas-prototipo-v1";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.1";
+  const APP_VERSION = "V.1.1";
 
   const categories = [
     { name: "Adjuvante", color: "#9aa0a6" },
@@ -308,7 +308,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       .filter((product) => product.qty > 0);
   }
 
-  function reportProductsForFarm(farm) {
+  function reportProductsForFarm(farm, selectedCategories = categories.map((category) => category.name)) {
+    const categorySet = new Set(selectedCategories);
     return state.products
       .map((product) => ({
         ...product,
@@ -317,17 +318,18 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         unit: productUnit(product)
       }))
       .filter((product) => product.qty > 0)
+      .filter((product) => categorySet.has(product.category))
       .sort((a, b) => a.category.localeCompare(b.category, "pt-BR") || a.name.localeCompare(b.name, "pt-BR"));
   }
 
-  function reportHtml(farms) {
+  function reportHtml(farms, selectedCategories = categories.map((category) => category.name)) {
     const generatedAt = new Date().toLocaleString("pt-BR", {
       dateStyle: "short",
       timeStyle: "short"
     });
 
     const farmSections = farms.map((farm) => {
-      const rows = reportProductsForFarm(farm);
+      const rows = reportProductsForFarm(farm, selectedCategories);
       const body = rows.map((product) => {
         const hectares = hectaresFor(product.qty, product.dose);
         return `
@@ -387,7 +389,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     `;
   }
 
-  function openReport(farms) {
+  function openReport(farms, selectedCategories) {
     const reportWindow = window.open("", "_blank");
     if (!reportWindow) {
       alert("O navegador bloqueou o relatório. Permita pop-ups para este site e tente novamente.");
@@ -395,7 +397,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     }
 
     reportWindow.document.open();
-    reportWindow.document.write(reportHtml(farms));
+    reportWindow.document.write(reportHtml(farms, selectedCategories));
     reportWindow.document.close();
   }
 
@@ -483,6 +485,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       subtitle: "Admin mestre do protótipo local",
       actions: `
         <button class="button button--primary" data-action="new-farm">+ Nova Fazenda</button>
+        <button class="button button--ghost" data-action="open-reports-tab">Relatórios</button>
       `,
       content: `
         <nav class="tabs" aria-label="Telas do admin">
@@ -528,6 +531,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           </div>
           <div class="farm-card__actions">
             <button class="button button--ghost" data-action="open-farm-admin" data-farm-id="${farm.id}">Ver</button>
+            <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
             <button class="button button--danger" data-action="confirm-delete-farm" data-farm-id="${farm.id}">Remover</button>
           </div>
         </div>
@@ -680,17 +684,35 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           <button class="button button--primary" data-action="generate-admin-report">Gerar relatório</button>
         </div>
         <div class="report-options">
-          <label class="checkbox-row">
-            <input type="checkbox" data-report-all checked>
-            <span>Todas as fazendas</span>
-          </label>
-          <div class="checkbox-list" data-report-farms>
-            ${state.farms.map((farm) => `
-              <label class="checkbox-row">
-                <input type="checkbox" name="reportFarmId" value="${farm.id}" checked>
-                <span>${farm.name}</span>
-              </label>
-            `).join("") || `<div class="empty">Nenhuma fazenda cadastrada.</div>`}
+          <div>
+            <h3 class="section-label">Fazendas</h3>
+            <label class="checkbox-row">
+              <input type="checkbox" data-report-all="farms" checked>
+              <span>Todas as fazendas</span>
+            </label>
+            <div class="checkbox-list" data-report-farms>
+              ${state.farms.map((farm) => `
+                <label class="checkbox-row">
+                  <input type="checkbox" name="reportFarmId" value="${farm.id}" checked>
+                  <span>${farm.name}</span>
+                </label>
+              `).join("") || `<div class="empty">Nenhuma fazenda cadastrada.</div>`}
+            </div>
+          </div>
+          <div>
+            <h3 class="section-label">Categorias</h3>
+            <label class="checkbox-row">
+              <input type="checkbox" data-report-all="categories" checked>
+              <span>Todas as categorias</span>
+            </label>
+            <div class="checkbox-list" data-report-categories>
+              ${categories.map((category) => `
+                <label class="checkbox-row">
+                  <input type="checkbox" name="reportCategory" value="${category.name}" checked>
+                  <span>${category.name}</span>
+                </label>
+              `).join("")}
+            </div>
           </div>
         </div>
       </section>
@@ -1230,11 +1252,20 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       });
     }
 
+    if (action === "open-reports-tab") {
+      currentTab = "relatorios";
+      route();
+    }
+
     if (action === "generate-admin-report") {
-      const allCheckbox = document.querySelector("[data-report-all]");
-      const farmIds = allCheckbox?.checked
+      const allFarmCheckbox = document.querySelector('[data-report-all="farms"]');
+      const allCategoryCheckbox = document.querySelector('[data-report-all="categories"]');
+      const farmIds = allFarmCheckbox?.checked
         ? state.farms.map((farm) => farm.id)
         : Array.from(document.querySelectorAll('input[name="reportFarmId"]:checked')).map((input) => input.value);
+      const selectedCategories = allCategoryCheckbox?.checked
+        ? categories.map((category) => category.name)
+        : Array.from(document.querySelectorAll('input[name="reportCategory"]:checked')).map((input) => input.value);
       const farms = state.farms.filter((farm) => farmIds.includes(farm.id));
 
       if (!farms.length) {
@@ -1242,12 +1273,17 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         return;
       }
 
-      openReport(farms);
+      if (!selectedCategories.length) {
+        alert("Selecione pelo menos uma categoria para gerar o relatório.");
+        return;
+      }
+
+      openReport(farms, selectedCategories);
     }
 
     if (action === "generate-farm-report") {
       const farm = state.farms.find((item) => item.id === button.dataset.farmId);
-      if (farm) openReport([farm]);
+      if (farm) openReport([farm], categories.map((category) => category.name));
     }
 
     if (action === "open-farm-admin") {
@@ -1470,16 +1506,28 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       route();
     }
 
-    if (event.target.matches("[data-report-all]")) {
+    if (event.target.matches('[data-report-all="farms"]')) {
       document.querySelectorAll('input[name="reportFarmId"]').forEach((input) => {
+        input.checked = event.target.checked;
+      });
+    }
+
+    if (event.target.matches('[data-report-all="categories"]')) {
+      document.querySelectorAll('input[name="reportCategory"]').forEach((input) => {
         input.checked = event.target.checked;
       });
     }
 
     if (event.target.matches('input[name="reportFarmId"]')) {
       const farmInputs = Array.from(document.querySelectorAll('input[name="reportFarmId"]'));
-      const allCheckbox = document.querySelector("[data-report-all]");
+      const allCheckbox = document.querySelector('[data-report-all="farms"]');
       if (allCheckbox) allCheckbox.checked = farmInputs.every((input) => input.checked);
+    }
+
+    if (event.target.matches('input[name="reportCategory"]')) {
+      const categoryInputs = Array.from(document.querySelectorAll('input[name="reportCategory"]'));
+      const allCheckbox = document.querySelector('[data-report-all="categories"]');
+      if (allCheckbox) allCheckbox.checked = categoryInputs.every((input) => input.checked);
     }
   });
 

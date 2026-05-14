@@ -385,7 +385,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             <h2 class="farm-card__name">${farm.name}</h2>
             <div class="farm-card__meta">Criada em ${formatDate(farm.createdAt)}</div>
           </div>
-          <button class="button button--ghost" data-action="open-farm-admin" data-farm-id="${farm.id}">Ver</button>
+          <div class="farm-card__actions">
+            <button class="button button--ghost" data-action="open-farm-admin" data-farm-id="${farm.id}">Ver</button>
+            <button class="button button--danger" data-action="confirm-delete-farm" data-farm-id="${farm.id}">Remover</button>
+          </div>
         </div>
         <a class="farm-card__link" href="${producerUrl(farm)}">${producerUrl(farm)}</a>
         <div class="summary-grid">
@@ -932,6 +935,48 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       selectedFarmId = button.dataset.farmId;
       currentTab = "estoque";
       route();
+    }
+
+    if (action === "confirm-delete-farm") {
+      const farm = state.farms.find((item) => item.id === button.dataset.farmId);
+
+      if (state.farms.length <= 1) {
+        openModal({
+          title: "Não é possível remover",
+          submitLabel: "Entendi",
+          fields: `
+            <div class="empty">Crie outra fazenda antes de remover a última cadastrada.</div>
+          `,
+          onSubmit() {}
+        });
+        return;
+      }
+
+      openModal({
+        title: "Remover fazenda",
+        submitLabel: "Remover definitivamente",
+        fields: `
+          <div class="field">
+            <label>${farm.name}</label>
+            <div class="panel__hint">Esta ação apaga o estoque e o histórico desta fazenda. Para confirmar, digite REMOVER.</div>
+          </div>
+          <label class="field">
+            <span>Confirmação</span>
+            <input name="confirmation" required placeholder="REMOVER">
+          </label>
+        `,
+        onSubmit(data) {
+          if (String(data.confirmation || "").trim().toUpperCase() !== "REMOVER") {
+            alert("Remoção cancelada. A confirmação precisa ser REMOVER.");
+            return;
+          }
+
+          state.farms = state.farms.filter((item) => item.id !== farm.id);
+          state.movements = state.movements.filter((item) => item.farmId !== farm.id);
+          if (selectedFarmId === farm.id) selectedFarmId = state.farms[0]?.id || null;
+          currentTab = "fazendas";
+        }
+      });
     }
 
     if (action === "new-product") {

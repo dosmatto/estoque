@@ -219,6 +219,13 @@ button {
   font-size: 0.86rem;
 }
 
+.farm-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .farm-card__link {
   display: block;
   margin: 12px 0;
@@ -610,6 +617,14 @@ button {
 
   .panel__actions {
     justify-content: stretch;
+  }
+
+  .farm-card__actions {
+    justify-content: stretch;
+  }
+
+  .farm-card__actions .button {
+    flex: 1 1 auto;
   }
 
   .panel__actions .button,

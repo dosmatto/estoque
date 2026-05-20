@@ -374,6 +374,31 @@ button {
   font-size: 0.95rem;
 }
 
+.search-panel {
+  margin: 2px 0 12px;
+}
+
+.search-field {
+  display: grid;
+  gap: 6px;
+}
+
+.search-field span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.search-field input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 14px;
+  background: var(--surface);
+  color: var(--text);
+}
+
 .checkbox-row {
   display: flex;
   align-items: flex-start;

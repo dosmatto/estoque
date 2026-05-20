@@ -4,7 +4,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const STORAGE_KEY = "estoque-fazendas-prototipo-v1";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.1.2";
+  const APP_VERSION = "V.1.3";
 
   const categories = [
     { name: "Adjuvante", color: "#9aa0a6" },
@@ -60,6 +60,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   let state = loadState();
   let currentTab = "fazendas";
   let currentFilter = "Todos";
+  let currentSearch = "";
   let selectedFarmId = state.farms[0]?.id || null;
   let remoteReady = false;
   let applyingRemoteState = false;
@@ -283,6 +284,14 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     return units.includes(product.unit) ? product.unit : "L / Kg";
   }
 
+  function normalizeText(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .trim();
+  }
+
   function getSimilarProducts(productId) {
     const product = state.products.find((item) => item.id === productId);
     const ids = new Set(product?.similarProductIds || []);
@@ -427,6 +436,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   }
 
   function filteredProducts(farm) {
+    const search = normalizeText(currentSearch);
     return state.products
       .map((product) => ({
         ...product,
@@ -438,6 +448,11 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       }))
       .filter((product) => product.qty > 0)
       .filter((product) => currentFilter === "Todos" || product.category === currentFilter)
+      .filter((product) => {
+        if (!search) return true;
+        const name = normalizeText(product.name);
+        return name.startsWith(search) || name.split(/\s+/).some((part) => part.startsWith(search)) || name.includes(search);
+      })
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   }
 
@@ -580,8 +595,9 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         </div>
       </section>
       ${renderFilters()}
-      ${renderStockSummary(farm)}
-      ${renderProductGrid(farm)}
+      ${renderProductSearch()}
+      <div data-stock-summary>${renderStockSummary(farm)}</div>
+      <div data-product-grid>${renderProductGrid(farm)}</div>
       ${renderHistory(farm)}
     `;
   }
@@ -739,8 +755,9 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
         </section>
         ${renderFilters()}
-        ${renderStockSummary(farm)}
-        ${renderProductGrid(farm)}
+        ${renderProductSearch()}
+        <div data-stock-summary>${renderStockSummary(farm)}</div>
+        <div data-product-grid>${renderProductGrid(farm)}</div>
         ${renderHistory(farm)}
       `
     });
@@ -760,11 +777,38 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     `;
   }
 
+  function renderProductSearch() {
+    return `
+      <section class="search-panel">
+        <label class="search-field">
+          <span>Buscar produto</span>
+          <input type="search" data-product-search value="${escapeHtml(currentSearch)}" placeholder="Digite as primeiras letras do produto">
+        </label>
+      </section>
+    `;
+  }
+
+  function currentVisibleFarm() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("fazenda");
+    return state.farms.find((farm) => farm.token === token) || state.farms.find((farm) => farm.id === selectedFarmId);
+  }
+
+  function refreshFarmProductView() {
+    const farm = currentVisibleFarm();
+    if (!farm) return;
+
+    const summary = document.querySelector("[data-stock-summary]");
+    const grid = document.querySelector("[data-product-grid]");
+    if (summary) summary.innerHTML = renderStockSummary(farm);
+    if (grid) grid.innerHTML = renderProductGrid(farm);
+  }
+
   function renderProductGrid(farm) {
     const products = filteredProducts(farm);
     return `
       <section class="product-grid">
-        ${products.map((product) => renderProductCard(product, farm)).join("") || `<div class="empty">Nenhum produto neste filtro.</div>`}
+        ${products.map((product) => renderProductCard(product, farm)).join("") || `<div class="empty">Nenhum produto encontrado.</div>`}
       </section>
     `;
   }
@@ -1229,7 +1273,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
     if (button.dataset.filter) {
       currentFilter = button.dataset.filter;
-      route();
+      if (document.querySelector("[data-product-search]")) refreshFarmProductView();
+      else route();
     }
 
     if (action === "new-farm") {
@@ -1500,6 +1545,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       });
     }
 
+  });
+
+  document.addEventListener("input", (event) => {
+    if (event.target.matches("[data-product-search]")) {
+      currentSearch = event.target.value;
+      refreshFarmProductView();
+    }
   });
 
   document.addEventListener("change", (event) => {

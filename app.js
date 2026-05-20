@@ -4,7 +4,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const STORAGE_KEY = "estoque-fazendas-prototipo-v1";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.1.3";
+  const APP_VERSION = "V.1.4";
 
   const categories = [
     { name: "Adjuvante", color: "#9aa0a6" },
@@ -1060,10 +1060,15 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       </div>
       <div class="mode-panel" data-mode-panel="existing">
         <label class="field">
+          <span>Buscar na lista mestre</span>
+          <input type="search" data-master-product-search placeholder="Digite as primeiras letras do produto">
+        </label>
+        <label class="field">
           <span>Produto da lista mestre</span>
-              <select name="productId" required data-existing-product>
-            ${state.products.map((product) => `<option value="${product.id}">${product.name} - ${product.category} - ${productUnit(product)}</option>`).join("")}
-          </select>
+          <input type="hidden" name="productId" data-existing-product required value="${state.products[0]?.id || ""}">
+          <div class="master-product-list" data-master-product-list>
+            ${renderMasterProductOptions()}
+          </div>
         </label>
       </div>
       <div class="mode-panel is-hidden" data-mode-panel="new">
@@ -1097,6 +1102,33 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         <input name="dose" type="text" inputmode="decimal" pattern="[0-9]+([,.][0-9]+)?" placeholder="Ex: 0,5">
       </label>
     `;
+  }
+
+  function renderMasterProductOptions(search = "") {
+    const normalizedSearch = normalizeText(search);
+    const products = state.products
+      .filter((product) => {
+        if (!normalizedSearch) return true;
+        const name = normalizeText(product.name);
+        return name.startsWith(normalizedSearch) || name.split(/\s+/).some((part) => part.startsWith(normalizedSearch)) || name.includes(normalizedSearch);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
+    return products.map((product, index) => `
+      <button class="master-product-option ${index === 0 ? "is-selected" : ""}" type="button" data-action="select-master-product" data-product-id="${product.id}">
+        <span>${product.name}</span>
+        <small>${product.category} - ${productUnit(product)}</small>
+      </button>
+    `).join("") || `<div class="empty">Nenhum produto encontrado.</div>`;
+  }
+
+  function refreshMasterProductOptions(input) {
+    const form = input.closest("form");
+    const list = form.querySelector("[data-master-product-list]");
+    const hiddenInput = form.querySelector("[data-existing-product]");
+    list.innerHTML = renderMasterProductOptions(input.value);
+    const firstOption = list.querySelector("[data-product-id]");
+    hiddenInput.value = firstOption ? firstOption.dataset.productId : "";
   }
 
   function syncProductMode(form) {
@@ -1275,6 +1307,15 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       currentFilter = button.dataset.filter;
       if (document.querySelector("[data-product-search]")) refreshFarmProductView();
       else route();
+    }
+
+    if (action === "select-master-product") {
+      const form = button.closest("form");
+      form.querySelector("[data-existing-product]").value = button.dataset.productId;
+      form.querySelectorAll(".master-product-option").forEach((option) => {
+        option.classList.toggle("is-selected", option === button);
+      });
+      return;
     }
 
     if (action === "new-farm") {
@@ -1551,6 +1592,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (event.target.matches("[data-product-search]")) {
       currentSearch = event.target.value;
       refreshFarmProductView();
+    }
+
+    if (event.target.matches("[data-master-product-search]")) {
+      refreshMasterProductOptions(event.target);
     }
   });
 

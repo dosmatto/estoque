@@ -399,6 +399,45 @@ button {
   color: var(--text);
 }
 
+.master-product-list {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.master-product-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 8px 10px;
+  color: var(--text);
+  text-align: left;
+}
+
+.master-product-option span {
+  font-weight: 800;
+}
+
+.master-product-option small {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.master-product-option.is-selected {
+  border-color: var(--primary);
+  background: #e1f1e8;
+  color: var(--primary-strong);
+}
+
 .checkbox-row {
   display: flex;
   align-items: flex-start;

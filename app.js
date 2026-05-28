@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2";
+  const APP_VERSION = "V.2.1";
 
   const categories = [
     { name: "Adjuvante", color: "#9aa0a6" },
@@ -1772,4 +1772,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   route();
   initFirebaseSync();
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch((error) => {
+      console.error("Erro ao registrar service worker:", error);
+    });
+  }
 })();

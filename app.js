@@ -5,7 +5,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.2";
+  const APP_VERSION = "V.2.3";
+  const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
     { name: "Adjuvante", color: "#9aa0a6" },
@@ -103,6 +104,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           token: "ABC123XYZ",
           createdAt: new Date().toISOString(),
           stock,
+          stockLots: Object.entries(stock).map(([productId, quantity]) => ({
+            id: makeId("lot"),
+            productId,
+            quantity,
+            dose: 0,
+            expiryDate: ""
+          })),
           doses: {}
         }
       ],
@@ -150,8 +158,12 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     }));
     data.farms = (data.farms || []).map((farm) => ({
       ...farm,
-      ownerId: farm.ownerId || MASTER_ACCOUNT_ID
+      ownerId: farm.ownerId || MASTER_ACCOUNT_ID,
+      stockLots: normalizeStockLots(farm),
+      physicalReviewDate: normalizeDateInput(farm.physicalReviewDate),
+      lastUpdatedAt: farm.lastUpdatedAt || ""
     }));
+    data.farms.forEach(syncFarmStockFromLots);
     data.movements = (data.movements || []).map((movement) => {
       const farm = data.farms.find((item) => item.id === movement.farmId);
       return {
@@ -299,19 +311,97 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  function normalizeDateInput(value) {
+    const text = String(value || "").trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+  }
+
+  function parseDateOnly(value) {
+    const normalized = normalizeDateInput(value);
+    if (!normalized) return null;
+    const [year, month, day] = normalized.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  function startOfToday() {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  function formatDateOnly(value) {
+    const date = parseDateOnly(value);
+    if (!date) return "-";
+    return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(date);
+  }
+
+  function formatOptionalDateTime(value) {
+    return value ? formatDate(value) : "Sem alterações registradas";
+  }
+
+  function expiryStatus(expiryDate) {
+    const date = parseDateOnly(expiryDate);
+    if (!date) return { status: "", label: "Sem vencimento" };
+
+    const diffDays = Math.ceil((date - startOfToday()) / (24 * 60 * 60 * 1000));
+    if (diffDays < 0) return { status: "expired", label: `Vencido em ${formatDateOnly(expiryDate)}` };
+    if (diffDays <= EXPIRY_WARNING_DAYS) return { status: "warning", label: `Vence em ${formatDateOnly(expiryDate)}` };
+    return { status: "ok", label: `Vence em ${formatDateOnly(expiryDate)}` };
+  }
+
+  function expiryBadge(expiryDate) {
+    const info = expiryStatus(expiryDate);
+    if (!info.status) return `<span class="badge badge--muted">Sem vencimento</span>`;
+    return `<span class="badge badge--${info.status}">${info.label}</span>`;
+  }
+
+  function categorySoftColor(category) {
+    const colors = {
+      "Adjuvante": "#f0f2f3",
+      "Fertilizante": "#edf8e5",
+      "Fungicida": "#fffbd1",
+      "Herbicida": "#ffe7e5",
+      "Inseticida": "#e5f7fc",
+      "Tratamento de Semente": "#f0eafa"
+    };
+    return colors[category] || "#f5f7f4";
+  }
+
+  function markFarmUpdated(farm) {
+    if (!farm) return;
+    farm.lastUpdatedAt = new Date().toISOString();
+    state.updatedAt = farm.lastUpdatedAt;
+  }
+
+  function markStateUpdated() {
+    state.updatedAt = new Date().toISOString();
+  }
+
   function ensureFarmData(farm) {
     if (!farm.stock) farm.stock = {};
     if (!farm.doses) farm.doses = {};
+    if (!Array.isArray(farm.stockLots)) farm.stockLots = normalizeStockLots(farm);
+    syncFarmStockFromLots(farm);
   }
 
   function getStockQty(farm, productId) {
     ensureFarmData(farm);
-    return Number(farm.stock[productId] || 0);
+    return stockLotsForProduct(farm, productId).reduce((sum, lot) => sum + Number(lot.quantity || 0), 0);
   }
 
   function setStockQty(farm, productId, quantity) {
     ensureFarmData(farm);
-    farm.stock[productId] = quantity;
+    let lots = stockLotsForProduct(farm, productId);
+    if (!lots.length) {
+      const lot = createStockLot({ productId, quantity });
+      farm.stockLots.push(lot);
+      lots = [lot];
+    }
+
+    lots.forEach((lot, index) => {
+      lot.quantity = index === 0 ? quantity : 0;
+    });
+    farm.stockLots = farm.stockLots.filter((lot) => Number(lot.quantity || 0) > 0);
+    syncFarmStockFromLots(farm);
   }
 
   function getDose(farm, productId) {
@@ -335,6 +425,67 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     }
 
     delete farm.doses[productId];
+  }
+
+  function createStockLot({ productId, quantity = 0, dose = 0, expiryDate = "" }) {
+    return {
+      id: makeId("lot"),
+      productId,
+      quantity: Number(quantity || 0),
+      dose: parseDecimal(dose) || 0,
+      expiryDate: normalizeDateInput(expiryDate)
+    };
+  }
+
+  function normalizeStockLots(farm) {
+    const lots = Array.isArray(farm.stockLots)
+      ? farm.stockLots.map((lot) => ({
+        id: lot.id || makeId("lot"),
+        productId: lot.productId,
+        quantity: Number(lot.quantity || 0),
+        dose: parseDecimal(lot.dose) || 0,
+        expiryDate: normalizeDateInput(lot.expiryDate)
+      })).filter((lot) => lot.productId && lot.quantity > 0)
+      : [];
+
+    if (lots.length) return lots;
+
+    return Object.entries(farm.stock || {})
+      .map(([productId, quantity]) => createStockLot({ productId, quantity }))
+      .filter((lot) => lot.quantity > 0);
+  }
+
+  function syncFarmStockFromLots(farm) {
+    const stock = {};
+    (farm.stockLots || []).forEach((lot) => {
+      if (Number(lot.quantity || 0) <= 0) return;
+      stock[lot.productId] = Number(stock[lot.productId] || 0) + Number(lot.quantity || 0);
+    });
+    farm.stock = stock;
+  }
+
+  function stockLotsForProduct(farm, productId) {
+    ensureFarmData(farm);
+    return farm.stockLots.filter((lot) => lot.productId === productId && Number(lot.quantity || 0) > 0);
+  }
+
+  function getStockLot(farm, lotId) {
+    ensureFarmData(farm);
+    return farm.stockLots.find((lot) => lot.id === lotId);
+  }
+
+  function lotDose(farm, lot, product) {
+    return parseDecimal(lot?.dose) || getDose(farm, product.id) || productDefaultDose(product);
+  }
+
+  function updateLotDose(farm, lot, dose) {
+    const parsedDose = parseDecimal(dose);
+    if (parsedDose && parsedDose > 0) lot.dose = parsedDose;
+    else lot.dose = 0;
+  }
+
+  function updateLotExpiry(farm, lot, expiryDate) {
+    lot.expiryDate = normalizeDateInput(expiryDate);
   }
 
   function hectaresFor(quantity, dose) {
@@ -381,16 +532,24 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   function reportProductsForFarm(farm, selectedCategories = categories.map((category) => category.name)) {
     const categorySet = new Set(selectedCategories);
-    return state.products
-      .map((product) => ({
-        ...product,
-        qty: getStockQty(farm, product.id),
-        dose: effectiveDose(farm, product),
-        unit: productUnit(product)
-      }))
+    ensureFarmData(farm);
+    return farm.stockLots
+      .map((lot) => {
+        const product = state.products.find((item) => item.id === lot.productId);
+        if (!product) return null;
+        return {
+          ...product,
+          lotId: lot.id,
+          qty: Number(lot.quantity || 0),
+          dose: lotDose(farm, lot, product),
+          unit: productUnit(product),
+          expiryDate: lot.expiryDate
+        };
+      })
+      .filter(Boolean)
       .filter((product) => product.qty > 0)
       .filter((product) => categorySet.has(product.category))
-      .sort((a, b) => a.category.localeCompare(b.category, "pt-BR") || a.name.localeCompare(b.name, "pt-BR"));
+      .sort((a, b) => a.category.localeCompare(b.category, "pt-BR") || a.name.localeCompare(b.name, "pt-BR") || String(a.expiryDate || "").localeCompare(String(b.expiryDate || "")));
   }
 
   function reportHtml(farms, selectedCategories = categories.map((category) => category.name)) {
@@ -403,13 +562,15 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       const rows = reportProductsForFarm(farm, selectedCategories);
       const body = rows.map((product) => {
         const hectares = hectaresFor(product.qty, product.dose);
+        const expiry = expiryStatus(product.expiryDate);
         return `
-          <tr>
+          <tr style="background: ${categorySoftColor(product.category)}">
             <td>${escapeHtml(product.category)}</td>
             <td>${escapeHtml(product.name)}</td>
             <td>${formatQty(product.qty)} ${escapeHtml(productUnit(product))}</td>
             <td>${product.dose ? `${formatQty(product.dose)} ${escapeHtml(productUnit(product))}/ha` : "-"}</td>
             <td>${hectares === null ? "-" : `${formatQty(hectares)} ha`}</td>
+            <td class="${expiry.status === "expired" ? "expired" : expiry.status === "warning" ? "warning" : ""}">${escapeHtml(expiry.label)}</td>
           </tr>
         `;
       }).join("");
@@ -425,9 +586,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
                 <th>Quantidade</th>
                 <th>Dose</th>
                 <th>Área estimada</th>
+                <th>Vencimento</th>
               </tr>
             </thead>
-            <tbody>${body || `<tr><td colspan="5">Sem produtos em estoque.</td></tr>`}</tbody>
+            <tbody>${body || `<tr><td colspan="6">Sem produtos em estoque.</td></tr>`}</tbody>
           </table>
         </section>
       `;
@@ -447,6 +609,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             table { border-collapse: collapse; width: 100%; }
             th, td { border: 1px solid #dce4da; padding: 8px; text-align: left; }
             th { background: #eef3ed; }
+            .expired { color: #b5262f; font-weight: 800; }
+            .warning { color: #a76b00; font-weight: 800; }
             .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
             button { min-height: 42px; border: 1px solid #dce4da; border-radius: 8px; background: #fff; color: #172018; padding: 0 14px; font: inherit; font-weight: 700; }
             .primary { background: #1f7a4d; color: #fff; border-color: #1f7a4d; }
@@ -499,32 +663,73 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   function filteredProducts(farm) {
     const search = normalizeText(currentSearch);
-    return state.products
-      .map((product) => ({
-        ...product,
-        qty: getStockQty(farm, product.id),
-        dose: effectiveDose(farm, product),
-        farmDose: getDose(farm, product.id),
-        defaultDose: productDefaultDose(product),
-        unit: productUnit(product)
-      }))
-      .filter((product) => product.qty > 0)
-      .filter((product) => currentFilter === "Todos" || product.category === currentFilter)
-      .filter((product) => {
+    ensureFarmData(farm);
+    return farm.stockLots
+      .map((lot) => {
+        const product = state.products.find((item) => item.id === lot.productId);
+        if (!product) return null;
+        return {
+          ...product,
+          lotId: lot.id,
+          qty: Number(lot.quantity || 0),
+          dose: lotDose(farm, lot, product),
+          farmDose: getDose(farm, product.id),
+          defaultDose: productDefaultDose(product),
+          unit: productUnit(product),
+          expiryDate: lot.expiryDate
+        };
+      })
+      .filter(Boolean)
+      .filter((item) => item.qty > 0)
+      .filter((item) => currentFilter === "Todos" || item.category === currentFilter)
+      .filter((item) => {
         if (!search) return true;
-        const name = normalizeText(product.name);
+        const name = normalizeText(item.name);
         return name.startsWith(search) || name.split(/\s+/).some((part) => part.startsWith(search)) || name.includes(search);
       })
-      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR") || String(a.expiryDate || "").localeCompare(String(b.expiryDate || "")));
   }
 
   function farmMetrics(farm) {
-    const entries = state.products.map((product) => getStockQty(farm, product.id));
+    ensureFarmData(farm);
+    const entries = farm.stockLots.map((lot) => Number(lot.quantity || 0));
     return {
       products: entries.filter((qty) => qty > 0).length,
       total: entries.reduce((sum, qty) => sum + qty, 0),
       movements: state.movements.filter((item) => item.farmId === farm.id).length
     };
+  }
+
+  function latestUpdateForAccount(accountId = activeAccountId) {
+    const farms = visibleFarms(accountId);
+    const farmIds = new Set(farms.map((farm) => farm.id));
+    const dates = [
+      state.updatedAt,
+      ...farms.map((farm) => farm.lastUpdatedAt),
+      ...state.movements.filter((movement) => farmIds.has(movement.farmId)).map((movement) => movement.createdAt)
+    ].filter(Boolean).map((value) => new Date(value).getTime()).filter(Number.isFinite);
+
+    if (!dates.length) return "";
+    return new Date(Math.max(...dates)).toISOString();
+  }
+
+  function renderUpdatePanel(farm = null) {
+    const lastUpdate = farm?.lastUpdatedAt || latestUpdateForAccount();
+    return `
+      <section class="status-panel">
+        <div class="status-item">
+          <span>Última atualização</span>
+          <strong>${formatOptionalDateTime(lastUpdate)}</strong>
+        </div>
+        ${farm ? `
+          <div class="status-item">
+            <span>Revisão do estoque físico</span>
+            <strong>${farm.physicalReviewDate ? formatDateOnly(farm.physicalReviewDate) : "Não informada"}</strong>
+          </div>
+          <button class="button button--ghost" data-action="edit-physical-review" data-farm-id="${farm.id}">Editar revisão</button>
+        ` : ""}
+      </section>
+    `;
   }
 
   function renderShell({ title, subtitle, actions, content }) {
@@ -574,6 +779,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         <button class="button button--ghost" data-action="open-reports-tab">Relatórios</button>
       `,
       content: `
+        ${currentTab === "estoque" ? "" : renderUpdatePanel()}
         <nav class="tabs" aria-label="Telas do admin">
           ${tabButton("fazendas", "Fazendas")}
           ${tabButton("estoque", "Estoque da fazenda")}
@@ -679,6 +885,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (!farm) return `<div class="empty">Crie uma fazenda para visualizar o estoque.</div>`;
 
     return `
+      ${renderUpdatePanel(farm)}
       <section class="panel">
         <div class="panel__header">
           <div>
@@ -851,6 +1058,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
       `,
       content: `
+        ${renderUpdatePanel(farm)}
         <section class="panel quick-actions">
           <button class="button button--primary" data-action="add-product-farm" data-farm-id="${farm.id}">+ Adicionar produto</button>
           <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
@@ -909,7 +1117,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     const products = filteredProducts(farm);
     return `
       <section class="product-grid">
-        ${products.map((product) => renderProductCard(product, farm)).join("") || `<div class="empty">Nenhum produto encontrado.</div>`}
+        ${products.map((product) => renderProductCard(product, farm)).join("") || `<div class="empty">Nenhum item encontrado.</div>`}
       </section>
     `;
   }
@@ -933,7 +1141,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             <h2 class="panel__title">Resumo do estoque</h2>
             <p class="panel__hint">Lista organizada por categoria para conferência rápida.</p>
           </div>
-          <strong>${products.length} produtos</strong>
+          <strong>${products.length} itens</strong>
         </div>
         <div class="summary-categories">
           ${visibleCategories.map((category) => {
@@ -961,12 +1169,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     const hectares = hectaresFor(product.qty, product.dose);
     const unit = productUnit(product);
     const doseText = product.dose ? `Dose: ${formatQty(product.dose)} ${unit}/ha` : "Dose não informada";
+    const expiry = expiryStatus(product.expiryDate);
 
     return `
-      <div class="summary-row">
+      <div class="summary-row ${expiry.status === "expired" ? "is-expired" : expiry.status === "warning" ? "is-warning" : ""}">
         <div>
           <span>${product.name}</span>
-          <div class="summary-row__meta">${doseText}</div>
+          <div class="summary-row__meta">${doseText} | ${expiry.label}</div>
         </div>
         <div class="summary-row__numbers">
           <strong>${formatQty(product.qty)} ${unit}</strong>
@@ -980,12 +1189,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     const hectares = hectaresFor(product.qty, product.dose);
     const unit = productUnit(product);
     const similarProducts = farmSimilarProducts(farm, product.id);
+    const expiry = expiryStatus(product.expiryDate);
     return `
-      <article class="product-card" style="--category-color: ${categoryColor(product.category)}">
+      <article class="product-card ${expiry.status === "expired" ? "is-expired" : expiry.status === "warning" ? "is-warning" : ""}" style="--category-color: ${categoryColor(product.category)}">
         <div class="product-card__header">
           <div>
             <h2 class="product-card__name">${product.name}</h2>
-            <div class="product-card__meta"><span class="badge">${product.category}</span> <span class="badge">${unit}</span></div>
+            <div class="product-card__meta"><span class="badge">${product.category}</span> <span class="badge">${unit}</span> ${expiryBadge(product.expiryDate)}</div>
           </div>
         </div>
         <div class="product-card__body">
@@ -1001,6 +1211,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             <div>
               <span>Área</span>
               <strong>${hectares === null ? "-" : `${formatQty(hectares)} ha`}</strong>
+            </div>
+            <div>
+              <span>Venc.</span>
+              <strong>${product.expiryDate ? formatDateOnly(product.expiryDate) : "-"}</strong>
             </div>
           </div>
         </div>
@@ -1021,10 +1235,11 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           </div>
         ` : ""}
         <div class="product-card__actions">
-          <button class="button button--primary" data-action="move" data-type="entrada" data-farm-id="${farm.id}" data-product-id="${product.id}">+ Entrada</button>
-          <button class="button button--warning" data-action="move" data-type="saida" data-farm-id="${farm.id}" data-product-id="${product.id}">- Saída</button>
-          <button class="button button--ghost" data-action="edit-dose" data-farm-id="${farm.id}" data-product-id="${product.id}">Editar dose</button>
-          <button class="button button--ghost" data-action="manual-edit" data-farm-id="${farm.id}" data-product-id="${product.id}">Editar manualmente</button>
+          <button class="button button--primary" data-action="move" data-type="entrada" data-farm-id="${farm.id}" data-product-id="${product.id}" data-lot-id="${product.lotId}">+ Entrada</button>
+          <button class="button button--warning" data-action="move" data-type="saida" data-farm-id="${farm.id}" data-product-id="${product.id}" data-lot-id="${product.lotId}">- Saída</button>
+          <button class="button button--ghost" data-action="edit-dose" data-farm-id="${farm.id}" data-product-id="${product.id}" data-lot-id="${product.lotId}">Editar dose</button>
+          <button class="button button--ghost" data-action="edit-expiry" data-farm-id="${farm.id}" data-product-id="${product.id}" data-lot-id="${product.lotId}">Editar vencimento</button>
+          <button class="button button--ghost" data-action="manual-edit" data-farm-id="${farm.id}" data-product-id="${product.id}" data-lot-id="${product.lotId}">Editar manualmente</button>
         </div>
       </article>
     `;
@@ -1052,11 +1267,14 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             const doseSourceText = item.doseSource === "padrao" ? " - dose padrão" : "";
             const valueText = item.type === "dose"
               ? (item.dose ? `${formatQty(item.dose)} ${unit}/ha` : "Dose removida")
-              : `${item.type === "saida" ? "-" : item.type === "entrada" ? "+" : ""}${formatQty(item.quantity)} ${unit}`;
+              : item.type === "vencimento" || item.type === "revisao"
+                ? item.note
+                : `${item.type === "saida" ? "-" : item.type === "entrada" ? "+" : ""}${formatQty(item.quantity)} ${unit}`;
+            const titleText = item.type === "revisao" ? "Revisão do estoque físico" : product?.name || "Produto removido";
             return `
               <div class="list-row">
                 <div>
-                  <div class="list-row__title">${product?.name || "Produto removido"}</div>
+                  <div class="list-row__title">${titleText}</div>
                   <div class="list-row__meta">${formatDate(item.createdAt)} - ${item.type}${doseSourceText}</div>
                 </div>
                 <strong>${valueText}</strong>
@@ -1125,7 +1343,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     `;
   }
 
-  function movementFields(type, product, currentQty, currentDose) {
+  function movementFields(type, product, currentQty, currentDose, currentExpiryDate) {
     const title = type === "manual" ? "Nova quantidade" : "Quantidade";
     const unit = productUnit(product);
     return `
@@ -1140,6 +1358,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       <label class="field">
         <span>Dose por hectare (opcional)</span>
         <input name="dose" type="text" inputmode="decimal" pattern="[0-9]+([,.][0-9]+)?" value="${currentDose ? formatQty(currentDose) : ""}" placeholder="Ex: 0,5 ${unit}/ha">
+      </label>
+      <label class="field">
+        <span>Data de vencimento (opcional)</span>
+        <input name="expiryDate" type="date" value="${normalizeDateInput(currentExpiryDate)}">
       </label>
       <label class="field">
         <span>Observação</span>
@@ -1202,6 +1424,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       <label class="field">
         <span>Dose por hectare (opcional)</span>
         <input name="dose" type="text" inputmode="decimal" pattern="[0-9]+([,.][0-9]+)?" placeholder="Ex: 0,5">
+      </label>
+      <label class="field">
+        <span>Data de vencimento (opcional)</span>
+        <input name="expiryDate" type="date">
       </label>
     `;
   }
@@ -1291,6 +1517,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
       product.similarProductIds = Array.from(current);
     });
+    markStateUpdated();
   }
 
   function findOrCreateProduct(name, category, unit, defaultDose) {
@@ -1314,6 +1541,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       defaultDose: parsedDefaultDose
     };
     state.products.push(product);
+    markStateUpdated();
     return product;
   }
 
@@ -1326,12 +1554,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
     state.farms.forEach((farm) => {
       ensureFarmData(farm);
-      const sourceQty = getStockQty(farm, sourceProductId);
-      const targetQty = getStockQty(farm, targetProductId);
       const sourceDose = getDose(farm, sourceProductId);
       const targetDose = getDose(farm, targetProductId);
 
-      if (sourceQty) setStockQty(farm, targetProductId, targetQty + sourceQty);
+      farm.stockLots.forEach((lot) => {
+        if (lot.productId === sourceProductId) lot.productId = targetProductId;
+      });
+      syncFarmStockFromLots(farm);
       delete farm.stock[sourceProductId];
 
       if (!targetDose && sourceDose) setDose(farm, targetProductId, sourceDose);
@@ -1343,18 +1572,23 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     });
 
     state.products = state.products.filter((product) => product.id !== sourceProductId);
+    markStateUpdated();
   }
 
-  function updateDose({ farmId, productId, dose }) {
+  function updateDose({ farmId, productId, lotId, dose }) {
     const farm = state.farms.find((item) => item.id === farmId);
     const parsedDose = parseDecimal(dose);
+    const lot = lotId ? getStockLot(farm, lotId) : null;
 
-    setDose(farm, productId, parsedDose);
+    if (lot) updateLotDose(farm, lot, parsedDose);
+    else setDose(farm, productId, parsedDose);
+    markFarmUpdated(farm);
     state.movements.push({
       id: makeId("mov"),
       farmId,
       ownerId: farm.ownerId,
       productId,
+      lotId: lot?.id || "",
       type: "dose",
       quantity: parsedDose || 0,
       dose: parsedDose || null,
@@ -1366,29 +1600,84 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     });
   }
 
-  function addMovement({ farmId, productId, type, quantity, dose, note }) {
+  function updateExpiry({ farmId, productId, lotId, expiryDate }) {
+    const farm = state.farms.find((item) => item.id === farmId);
+    const lot = getStockLot(farm, lotId);
+    if (!lot) return;
+
+    updateLotExpiry(farm, lot, expiryDate);
+    markFarmUpdated(farm);
+    state.movements.push({
+      id: makeId("mov"),
+      farmId,
+      ownerId: farm.ownerId,
+      productId,
+      lotId: lot.id,
+      type: "vencimento",
+      quantity: 0,
+      dose: lotDose(farm, lot, state.products.find((item) => item.id === productId) || {}),
+      previousQuantity: Number(lot.quantity || 0),
+      nextQuantity: Number(lot.quantity || 0),
+      note: lot.expiryDate ? `Vencimento: ${formatDateOnly(lot.expiryDate)}` : "Vencimento removido",
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  function updatePhysicalReview({ farmId, physicalReviewDate }) {
+    const farm = state.farms.find((item) => item.id === farmId);
+    if (!farm) return;
+    farm.physicalReviewDate = normalizeDateInput(physicalReviewDate);
+    markFarmUpdated(farm);
+    state.movements.push({
+      id: makeId("mov"),
+      farmId,
+      ownerId: farm.ownerId,
+      productId: "",
+      lotId: "",
+      type: "revisao",
+      quantity: 0,
+      dose: null,
+      previousQuantity: 0,
+      nextQuantity: 0,
+      note: farm.physicalReviewDate ? `Estoque físico revisado em ${formatDateOnly(farm.physicalReviewDate)}` : "Revisão física removida",
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  function addMovement({ farmId, productId, lotId, type, quantity, dose, expiryDate, note }) {
     const farm = state.farms.find((item) => item.id === farmId);
     const product = state.products.find((item) => item.id === productId);
-    const currentQty = getStockQty(farm, productId);
+    let lot = lotId ? getStockLot(farm, lotId) : null;
+    if (!lot) {
+      lot = createStockLot({ productId, quantity: 0, dose: productDefaultDose(product || {}), expiryDate });
+      farm.stockLots.push(lot);
+    }
+    const currentQty = Number(lot.quantity || 0);
     const parsedQty = parseDecimal(quantity) || 0;
     const typedDose = parseDecimal(dose);
-    const parsedDose = typedDose !== null ? typedDose : productDefaultDose(product || {});
+    const parsedDose = typedDose !== null ? typedDose : lotDose(farm, lot, product || {});
     let nextQty = currentQty;
 
     if (type === "entrada") nextQty += parsedQty;
     if (type === "saida") nextQty = Math.max(0, nextQty - parsedQty);
     if (type === "edicao") nextQty = parsedQty;
 
-    setStockQty(farm, productId, nextQty);
-    if (parsedDose) setDose(farm, productId, parsedDose);
+    lot.quantity = nextQty;
+    if (parsedDose) updateLotDose(farm, lot, parsedDose);
+    if (expiryDate !== undefined) updateLotExpiry(farm, lot, expiryDate);
+    farm.stockLots = farm.stockLots.filter((item) => Number(item.quantity || 0) > 0);
+    syncFarmStockFromLots(farm);
+    markFarmUpdated(farm);
     state.movements.push({
       id: makeId("mov"),
       farmId,
       ownerId: farm.ownerId,
       productId,
+      lotId: lot.id,
       type,
       quantity: parsedQty,
       dose: parsedDose,
+      expiryDate: lot.expiryDate,
       previousQuantity: currentQty,
       nextQuantity: nextQty,
       note: note || "",
@@ -1440,8 +1729,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             token: Math.random().toString(36).slice(2, 11).toUpperCase(),
             createdAt: new Date().toISOString(),
             stock: {},
+            stockLots: [],
             doses: {}
           };
+          markFarmUpdated(farm);
           state.farms.push(farm);
           selectedFarmId = farm.id;
           currentTab = "fazendas";
@@ -1468,6 +1759,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             createdAt: new Date().toISOString()
           };
           state.accounts.push(account);
+          markStateUpdated();
           currentTab = "subadmins";
         }
       });
@@ -1476,6 +1768,27 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (action === "open-reports-tab") {
       currentTab = "relatorios";
       route();
+    }
+
+    if (action === "edit-physical-review") {
+      const farm = state.farms.find((item) => item.id === button.dataset.farmId);
+      openModal({
+        title: "Revisão do estoque físico",
+        submitLabel: "Salvar revisão",
+        fields: `
+          <div class="field">
+            <label>${farm.name}</label>
+            <div class="panel__hint">Informe o dia em que todo o estoque físico foi conferido na fazenda.</div>
+          </div>
+          <label class="field">
+            <span>Data da revisão</span>
+            <input name="physicalReviewDate" type="date" value="${normalizeDateInput(farm.physicalReviewDate)}">
+          </label>
+        `,
+        onSubmit(data) {
+          updatePhysicalReview({ farmId: farm.id, physicalReviewDate: data.physicalReviewDate });
+        }
+      });
     }
 
     if (action === "generate-admin-report") {
@@ -1570,6 +1883,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             unit: data.unit,
             defaultDose: parseDecimal(data.defaultDose) || 0
           });
+          markStateUpdated();
         }
       });
     }
@@ -1584,6 +1898,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           product.category = data.category;
           product.unit = data.unit;
           product.defaultDose = parseDecimal(data.defaultDose) || 0;
+          markStateUpdated();
         }
       });
     }
@@ -1653,7 +1968,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (action === "edit-dose") {
       const farm = state.farms.find((item) => item.id === button.dataset.farmId);
       const product = state.products.find((item) => item.id === button.dataset.productId);
-      const currentDose = getDose(farm, product.id);
+      const lot = getStockLot(farm, button.dataset.lotId);
+      const currentDose = lot ? lotDose(farm, lot, product) : getDose(farm, product.id);
       const unit = productUnit(product);
       openModal({
         title: "Editar dose",
@@ -1669,7 +1985,30 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           </label>
         `,
         onSubmit(data) {
-          updateDose({ farmId: farm.id, productId: product.id, dose: data.dose });
+          updateDose({ farmId: farm.id, productId: product.id, lotId: lot?.id, dose: data.dose });
+        }
+      });
+    }
+
+    if (action === "edit-expiry") {
+      const farm = state.farms.find((item) => item.id === button.dataset.farmId);
+      const product = state.products.find((item) => item.id === button.dataset.productId);
+      const lot = getStockLot(farm, button.dataset.lotId);
+      openModal({
+        title: "Editar vencimento",
+        submitLabel: "Salvar vencimento",
+        fields: `
+          <div class="field">
+            <label>${product.name}</label>
+            <div class="panel__hint">Informe a data de vencimento deste item do estoque. Deixe vazio para remover.</div>
+          </div>
+          <label class="field">
+            <span>Data de vencimento</span>
+            <input name="expiryDate" type="date" value="${normalizeDateInput(lot?.expiryDate)}">
+          </label>
+        `,
+        onSubmit(data) {
+          updateExpiry({ farmId: farm.id, productId: product.id, lotId: lot.id, expiryDate: data.expiryDate });
         }
       });
     }
@@ -1677,15 +2016,16 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (action === "move" || action === "manual-edit") {
       const farm = state.farms.find((item) => item.id === button.dataset.farmId);
       const product = state.products.find((item) => item.id === button.dataset.productId);
+      const lot = getStockLot(farm, button.dataset.lotId);
       const type = action === "manual-edit" ? "edicao" : button.dataset.type;
-      const currentQty = getStockQty(farm, product.id);
-      const currentDose = getDose(farm, product.id);
+      const currentQty = lot ? Number(lot.quantity || 0) : getStockQty(farm, product.id);
+      const currentDose = lot ? lotDose(farm, lot, product) : getDose(farm, product.id);
       openModal({
         title: type === "entrada" ? "Registrar entrada" : type === "saida" ? "Registrar saída" : "Editar manualmente",
         submitLabel: "Registrar",
-        fields: movementFields(type === "edicao" ? "manual" : type, product, currentQty, currentDose),
+        fields: movementFields(type === "edicao" ? "manual" : type, product, currentQty, currentDose, lot?.expiryDate),
         onSubmit(data) {
-          addMovement({ farmId: farm.id, productId: product.id, type, quantity: data.quantity, dose: data.dose, note: data.note });
+          addMovement({ farmId: farm.id, productId: product.id, lotId: lot?.id, type, quantity: data.quantity, dose: data.dose, expiryDate: data.expiryDate, note: data.note });
         }
       });
     }
@@ -1717,7 +2057,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             return false;
           }
 
-          addMovement({ farmId: farm.id, productId, type: "edicao", quantity: data.quantity, dose: data.dose });
+          addMovement({ farmId: farm.id, productId, type: "edicao", quantity: data.quantity, dose: data.dose, expiryDate: data.expiryDate });
         }
       });
     }

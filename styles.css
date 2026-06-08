@@ -99,6 +99,34 @@ button {
   padding: 18px 16px 40px;
 }
 
+.status-panel {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.status-item {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.status-item span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.status-item strong {
+  font-size: 0.95rem;
+}
+
 .tabs,
 .filters {
   display: flex;
@@ -252,6 +280,16 @@ button {
   position: relative;
   overflow: hidden;
   padding: 14px;
+}
+
+.product-card.is-expired {
+  border-color: #f1c7ca;
+  background: #fff7f8;
+}
+
+.product-card.is-warning {
+  border-color: #efd8aa;
+  background: #fffbf0;
 }
 
 .product-card::before {
@@ -463,6 +501,26 @@ button {
   font-weight: 700;
 }
 
+.badge--expired {
+  background: #ffe1e4;
+  color: var(--danger);
+}
+
+.badge--warning {
+  background: #fff1cc;
+  color: var(--warning);
+}
+
+.badge--ok {
+  background: #e1f1e8;
+  color: var(--primary-strong);
+}
+
+.badge--muted {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
 .button {
   min-height: 44px;
   border: 1px solid transparent;
@@ -548,6 +606,14 @@ button {
   min-height: 36px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--line);
+}
+
+.summary-row.is-expired {
+  background: #fff1f2;
+}
+
+.summary-row.is-warning {
+  background: #fff8e8;
 }
 
 .summary-row:last-child {

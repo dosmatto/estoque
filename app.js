@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.4";
+  const APP_VERSION = "V.2.5";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -560,6 +560,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
     const farmSections = farms.map((farm) => {
       const rows = reportProductsForFarm(farm, selectedCategories);
+      const lastUpdate = latestUpdateForFarm(farm);
+      const physicalReview = farm.physicalReviewDate ? formatDateOnly(farm.physicalReviewDate) : "Não informada";
       const body = rows.map((product) => {
         const hectares = hectaresFor(product.qty, product.dose);
         const expiry = expiryStatus(product.expiryDate);
@@ -578,6 +580,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       return `
         <section>
           <h2>${escapeHtml(farm.name)}</h2>
+          <div class="farm-meta">
+            <span><strong>Última atualização:</strong> ${escapeHtml(formatOptionalDateTime(lastUpdate))}</span>
+            <span><strong>Conferência do estoque físico:</strong> ${escapeHtml(physicalReview)}</span>
+          </div>
           <table>
             <thead>
               <tr>
@@ -606,6 +612,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             h1 { margin: 0 0 6px; font-size: 24px; }
             h2 { margin: 24px 0 10px; font-size: 18px; }
             p { color: #657065; margin: 0 0 18px; }
+            .farm-meta { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 10px; color: #475247; font-size: 13px; }
+            .farm-meta span { background: #f5f8f4; border: 1px solid #dce4da; border-radius: 8px; padding: 7px 9px; }
             table { border-collapse: collapse; width: 100%; }
             th, td { border: 1px solid #dce4da; padding: 8px; text-align: left; }
             th { background: #eef3ed; }

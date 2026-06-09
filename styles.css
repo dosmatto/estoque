@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  --bg: #f5f7f4;
+  --bg: #f2f5f1;
   --surface: #ffffff;
   --surface-2: #eef3ed;
   --text: #172018;
@@ -10,7 +10,7 @@
   --primary-strong: #155f3b;
   --danger: #b5262f;
   --warning: #a76b00;
-  --shadow: 0 14px 40px rgba(23, 32, 24, 0.11);
+  --shadow: 0 14px 34px rgba(23, 32, 24, 0.08);
   --radius: 8px;
 }
 
@@ -44,7 +44,7 @@ button {
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 10;
   background: rgba(255, 255, 255, 0.96);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(10px);
@@ -57,7 +57,7 @@ button {
   gap: 14px;
   max-width: 1180px;
   margin: 0 auto;
-  padding: 14px 16px;
+  padding: 12px 16px;
 }
 
 .brand {
@@ -78,7 +78,8 @@ button {
 
 .brand__title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.22rem;
+  line-height: 1.12;
 }
 
 .brand__subtitle {
@@ -96,21 +97,24 @@ button {
 .main {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 18px 16px 40px;
+  padding: 16px 16px 40px;
 }
 
 .status-panel {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   align-items: stretch;
-  flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 14px;
+  margin: 0 0 14px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f9fbf8;
 }
 
 .status-item {
   display: grid;
   gap: 4px;
-  min-width: 220px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -127,12 +131,35 @@ button {
   font-size: 0.95rem;
 }
 
-.tabs,
+.tabs {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.tabs__group {
+  display: grid;
+  gap: 7px;
+}
+
+.tabs__label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tabs__buttons,
 .filters {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 2px 0 12px;
+  padding: 2px 0;
 }
 
 .tab,
@@ -147,11 +174,40 @@ button {
 }
 
 .tab.is-active,
-.chip.is-active {
+.chip.is-active,
+.view-tab.is-active {
   border-color: var(--primary);
   background: #e1f1e8;
   color: var(--primary-strong);
   font-weight: 700;
+}
+
+.view-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.view-tab {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f9fbf8;
+  color: var(--text);
+  padding: 0 8px;
+  font-weight: 800;
+}
+
+@media (max-width: 360px) {
+  .view-tab {
+    font-size: 0.88rem;
+    padding: 0 4px;
+  }
 }
 
 .chip__dot {
@@ -190,6 +246,7 @@ button {
 
 .metric {
   padding: 14px;
+  box-shadow: 0 4px 12px rgba(23, 32, 24, 0.04);
 }
 
 .metric__label,
@@ -205,7 +262,7 @@ button {
 }
 
 .panel {
-  margin-top: 14px;
+  margin-top: 16px;
   padding: 14px;
 }
 
@@ -243,6 +300,7 @@ button {
 
 .farm-card {
   padding: 14px;
+  box-shadow: 0 6px 18px rgba(23, 32, 24, 0.05);
 }
 
 .farm-card__name,
@@ -279,7 +337,8 @@ button {
 .product-card {
   position: relative;
   overflow: hidden;
-  padding: 14px;
+  padding: 15px;
+  box-shadow: 0 6px 18px rgba(23, 32, 24, 0.05);
 }
 
 .product-card.is-expired {
@@ -363,6 +422,34 @@ button {
   grid-column: 1 / -1;
 }
 
+.product-grid--launch .product-card {
+  padding: 11px 12px;
+}
+
+.product-grid--launch .product-card__name {
+  font-size: 1rem;
+}
+
+.product-grid--launch .product-card__body {
+  margin-top: 10px;
+}
+
+.product-grid--launch .quantity {
+  font-size: 1.65rem;
+}
+
+.product-grid--launch .dose-info {
+  padding: 8px;
+}
+
+.product-grid--launch .product-card__actions {
+  margin-top: 10px;
+}
+
+.product-grid--launch .product-card__actions .button {
+  min-height: 40px;
+}
+
 .similar-box {
   margin: 14px 0 0 4px;
   padding: 10px;
@@ -413,7 +500,11 @@ button {
 }
 
 .search-panel {
-  margin: 2px 0 12px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
 .search-field {
@@ -787,36 +878,122 @@ button {
 }
 
 @media (max-width: 720px) {
+  body {
+    font-size: 17px;
+  }
+
+  .topbar {
+    position: static;
+  }
+
   .topbar__inner {
-    align-items: stretch;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 10px 12px;
   }
 
   .topbar__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     justify-content: stretch;
   }
 
+  .topbar__actions:empty {
+    display: none;
+  }
+
   .topbar__actions .button {
-    flex: 1 1 auto;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 10px;
+  }
+
+  .main {
+    padding: 12px 10px 32px;
+  }
+
+  .brand {
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    column-gap: 8px;
+  }
+
+  .app-version {
+    grid-row: 1 / 3;
+  }
+
+  .brand__title {
+    font-size: 1.15rem;
+  }
+
+  .brand__subtitle {
+    font-size: 0.8rem;
+  }
+
+  .status-panel {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .status-panel .button {
+    width: 100%;
   }
 
   .tabs {
+    position: relative;
+    top: auto;
+    z-index: 8;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin: 0 -2px 12px;
+    padding: 8px;
+    box-shadow: 0 8px 18px rgba(23, 32, 24, 0.08);
+  }
+
+  .tabs__buttons {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     overflow-x: visible;
-    gap: 10px;
+    gap: 8px;
   }
 
   .tab {
     width: 100%;
-    min-height: 46px;
+    min-height: 44px;
     padding: 0 10px;
     white-space: normal;
+  }
+
+  .filters {
+    margin: 0 -10px 10px;
+    padding: 8px 10px;
+    background: #e9efe7;
+    border-block: 1px solid var(--line);
+  }
+
+  .chip {
+    min-height: 42px;
+    background: var(--surface);
   }
 
   .summary-grid,
   .farm-grid {
     grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    gap: 8px;
+  }
+
+  .metric {
+    padding: 12px;
+  }
+
+  .metric__value {
+    font-size: 1.55rem;
   }
 
   .panel__header,
@@ -834,15 +1011,23 @@ button {
   }
 
   .panel__actions {
+    display: grid;
+    grid-template-columns: 1fr;
     justify-content: stretch;
   }
 
   .farm-card__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     justify-content: stretch;
   }
 
   .farm-card__actions .button {
-    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .farm-card__actions .button--danger {
+    grid-column: 1 / -1;
   }
 
   .panel__actions .button,
@@ -852,16 +1037,113 @@ button {
   }
 
   .quick-actions {
-    display: block;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
     margin-top: 0;
+  }
+
+  .quick-actions .button {
+    width: 100%;
+  }
+
+  .quick-actions--single {
+    grid-template-columns: 1fr;
   }
 
   .product-grid {
     grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .product-card {
+    padding: 14px 12px 12px;
+  }
+
+  .product-card__header {
+    flex-direction: column;
+  }
+
+  .product-card__body {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .dose-info {
+    grid-template-columns: 1fr 1fr;
+    min-width: 0;
+  }
+
+  .dose-info div {
+    display: grid;
+    justify-items: start;
+    gap: 3px;
   }
 
   .product-card__actions {
     grid-template-columns: 1fr;
+  }
+
+  .product-card__actions .button {
+    min-height: 48px;
+  }
+
+  .product-grid--launch .product-card {
+    padding: 10px 10px 11px;
+  }
+
+  .product-grid--launch .product-card__body {
+    gap: 8px;
+  }
+
+  .product-grid--launch .product-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .product-grid--launch .badge {
+    min-height: 24px;
+    padding: 0 8px;
+    font-size: 0.72rem;
+  }
+
+  .product-grid--launch .dose-info {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .product-grid--launch .dose-info strong {
+    font-size: 0.82rem;
+    white-space: normal;
+  }
+
+  .product-grid--launch .product-card__actions {
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+  }
+
+  .product-grid--launch .product-card__actions .button {
+    min-height: 42px;
+    padding: 0 8px;
+    font-size: 0.92rem;
+  }
+
+  .product-grid--launch .product-card__actions .button--ghost {
+    grid-column: auto;
+  }
+
+  .product-grid--launch .product-card__actions .button:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .summary-categories {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .summary-row {
+    align-items: flex-start;
   }
 
   .report-options {

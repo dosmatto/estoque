@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.5";
+  const APP_VERSION = "V.2.9";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -61,6 +61,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const app = document.querySelector("#app");
   let state = loadState();
   let currentTab = "fazendas";
+  let currentFarmView = "estoque";
   let currentFilter = "Todos";
   let currentSearch = "";
   let activeAccountId = MASTER_ACCOUNT_ID;
@@ -798,14 +799,26 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         <button class="button button--ghost" data-action="open-reports-tab">Relatórios</button>
       `,
       content: `
-        ${currentTab === "estoque" ? "" : renderUpdatePanel()}
+        ${currentTab === "estoque" || currentTab === "lancamentos" ? "" : renderUpdatePanel()}
         <nav class="tabs" aria-label="Telas do admin">
-          ${tabButton("fazendas", "Fazendas")}
-          ${tabButton("estoque", "Estoque da fazenda")}
-          ${tabButton("consolidado", "Consolidado")}
-          ${tabButton("produtos", "Lista mestre")}
-          ${tabButton("relatorios", "Relatórios")}
-          ${isMasterAccount(account) ? tabButton("subadmins", "Sub-admins") : ""}
+          <div class="tabs__group">
+            <span class="tabs__label">Operação</span>
+            <div class="tabs__buttons">
+              ${tabButton("fazendas", "Fazendas")}
+              ${tabButton("estoque", "Estoque")}
+              ${tabButton("lancamentos", "Lançamentos")}
+              ${tabButton("historico", "Histórico")}
+              ${tabButton("consolidado", "Consolidado")}
+              ${tabButton("relatorios", "Relatórios")}
+            </div>
+          </div>
+          <div class="tabs__group">
+            <span class="tabs__label">Gestão</span>
+            <div class="tabs__buttons">
+              ${tabButton("produtos", "Lista mestre")}
+              ${isMasterAccount(account) ? tabButton("subadmins", "Sub-admins") : ""}
+            </div>
+          </div>
         </nav>
         ${renderAdminTab()}
       `
@@ -818,6 +831,8 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   function renderAdminTab() {
     if (currentTab === "estoque") return renderFarmStockAdmin();
+    if (currentTab === "lancamentos") return renderFarmLaunchesAdmin();
+    if (currentTab === "historico") return renderFarmHistoryAdmin();
     if (currentTab === "consolidado") return renderConsolidated();
     if (currentTab === "produtos") return renderMasterProducts();
     if (currentTab === "relatorios") return renderReports();
@@ -909,7 +924,33 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         <div class="panel__header">
           <div>
             <h2 class="panel__title">${farm.name}</h2>
-            <p class="panel__hint">A mesma visão do produtor, com acesso pelo admin.</p>
+            <p class="panel__hint">Consulta do estoque atual, resumo por categoria e histórico.</p>
+          </div>
+          <div class="panel__actions">
+            <select data-action="select-farm">
+              ${farms.map((item) => `<option value="${item.id}" ${item.id === farm.id ? "selected" : ""}>${item.name}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+      </section>
+      ${renderFilters()}
+      ${renderProductSearch()}
+      <div data-stock-summary>${renderStockSummary(farm)}</div>
+    `;
+  }
+
+  function renderFarmLaunchesAdmin() {
+    const farms = visibleFarms();
+    const farm = farms.find((item) => item.id === selectedFarmId);
+    if (!farm) return `<div class="empty">Crie uma fazenda para lançar movimentações.</div>`;
+
+    return `
+      ${renderUpdatePanel(farm)}
+      <section class="panel">
+        <div class="panel__header">
+          <div>
+            <h2 class="panel__title">Lançamentos - ${farm.name}</h2>
+            <p class="panel__hint">Entradas, saídas, ajustes manuais, dose e vencimento.</p>
           </div>
           <div class="panel__actions">
             <select data-action="select-farm">
@@ -921,8 +962,30 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       </section>
       ${renderFilters()}
       ${renderProductSearch()}
-      <div data-stock-summary>${renderStockSummary(farm)}</div>
       <div data-product-grid>${renderProductGrid(farm)}</div>
+    `;
+  }
+
+  function renderFarmHistoryAdmin() {
+    const farms = visibleFarms();
+    const farm = farms.find((item) => item.id === selectedFarmId);
+    if (!farm) return `<div class="empty">Crie uma fazenda para visualizar o histórico.</div>`;
+
+    return `
+      ${renderUpdatePanel(farm)}
+      <section class="panel">
+        <div class="panel__header">
+          <div>
+            <h2 class="panel__title">Histórico - ${farm.name}</h2>
+            <p class="panel__hint">Movimentações, revisões, doses e vencimentos lançados nesta fazenda.</p>
+          </div>
+          <div class="panel__actions">
+            <select data-action="select-farm">
+              ${farms.map((item) => `<option value="${item.id}" ${item.id === farm.id ? "selected" : ""}>${item.name}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+      </section>
       ${renderHistory(farm)}
     `;
   }
@@ -1069,26 +1132,52 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   }
 
   function renderProducer(farm) {
+    const isLaunches = currentFarmView === "lancamentos";
     renderShell({
       title: farm.name,
       subtitle: "Controle de estoque da fazenda",
-      actions: `
+      actions: isLaunches ? `
         <button class="button button--primary" data-action="add-product-farm" data-farm-id="${farm.id}">+ Adicionar produto</button>
+        <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
+      ` : `
         <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
       `,
       content: `
         ${renderUpdatePanel(farm)}
-        <section class="panel quick-actions">
-          <button class="button button--primary" data-action="add-product-farm" data-farm-id="${farm.id}">+ Adicionar produto</button>
-          <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
-        </section>
-        ${renderFilters()}
-        ${renderProductSearch()}
-        <div data-stock-summary>${renderStockSummary(farm)}</div>
-        <div data-product-grid>${renderProductGrid(farm)}</div>
-        ${renderHistory(farm)}
+        ${renderFarmViewTabs()}
+        ${isLaunches ? `
+          <section class="panel quick-actions">
+            <button class="button button--primary" data-action="add-product-farm" data-farm-id="${farm.id}">+ Adicionar produto</button>
+            <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
+          </section>
+        ` : `
+          <section class="panel quick-actions quick-actions--single">
+            <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
+          </section>
+        `}
+        ${currentFarmView === "historico" ? "" : `
+          ${renderFilters()}
+          ${renderProductSearch()}
+        `}
+        ${isLaunches ? `
+          <div data-product-grid>${renderProductGrid(farm)}</div>
+        ` : currentFarmView === "historico" ? `
+          ${renderHistory(farm)}
+        ` : `
+          <div data-stock-summary>${renderStockSummary(farm)}</div>
+        `}
       `
     });
+  }
+
+  function renderFarmViewTabs() {
+    return `
+      <nav class="view-tabs" aria-label="Visão da fazenda">
+        <button class="view-tab ${currentFarmView === "estoque" ? "is-active" : ""}" data-farm-view="estoque">Estoque</button>
+        <button class="view-tab ${currentFarmView === "lancamentos" ? "is-active" : ""}" data-farm-view="lancamentos">Lançamentos</button>
+        <button class="view-tab ${currentFarmView === "historico" ? "is-active" : ""}" data-farm-view="historico">Histórico</button>
+      </nav>
+    `;
   }
 
   function renderFilters() {
@@ -1135,7 +1224,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   function renderProductGrid(farm) {
     const products = filteredProducts(farm);
     return `
-      <section class="product-grid">
+      <section class="product-grid product-grid--launch">
         ${products.map((product) => renderProductCard(product, farm)).join("") || `<div class="empty">Nenhum item encontrado.</div>`}
       </section>
     `;
@@ -1712,6 +1801,11 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
     if (button.dataset.tab) {
       currentTab = button.dataset.tab;
+      route();
+    }
+
+    if (button.dataset.farmView) {
+      currentFarmView = button.dataset.farmView;
       route();
     }
 

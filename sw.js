@@ -1,4 +1,4 @@
-const CACHE_NAME = "estoque-fazendas-v2-5";
+const CACHE_NAME = "estoque-fazendas-v2-9";
 const ASSETS = [
   "./",
   "./index.html",

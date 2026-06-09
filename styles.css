@@ -423,31 +423,63 @@ button {
 }
 
 .product-grid--launch .product-card {
-  padding: 11px 12px;
+  padding: 9px 10px;
 }
 
 .product-grid--launch .product-card__name {
-  font-size: 1rem;
+  font-size: 0.96rem;
 }
 
 .product-grid--launch .product-card__body {
-  margin-top: 10px;
+  grid-template-columns: 96px 1fr;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .product-grid--launch .quantity {
-  font-size: 1.65rem;
+  font-size: 1.45rem;
+}
+
+.product-grid--launch .metric__label {
+  font-size: 0.72rem;
 }
 
 .product-grid--launch .dose-info {
-  padding: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 7px;
+}
+
+.product-grid--launch .dose-info div {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+}
+
+.product-grid--launch .dose-info span {
+  font-size: 0.7rem;
+}
+
+.product-grid--launch .dose-info strong {
+  white-space: normal;
+  font-size: 0.78rem;
 }
 
 .product-grid--launch .product-card__actions {
-  margin-top: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.product-grid--launch .product-card__actions .button--ghost {
+  grid-column: auto;
 }
 
 .product-grid--launch .product-card__actions .button {
-  min-height: 40px;
+  min-height: 38px;
+  padding: 0 8px;
+  font-size: 0.86rem;
 }
 
 .similar-box {
@@ -1089,10 +1121,11 @@ button {
   }
 
   .product-grid--launch .product-card {
-    padding: 10px 10px 11px;
+    padding: 8px 9px 9px;
   }
 
   .product-grid--launch .product-card__body {
+    grid-template-columns: 76px 1fr;
     gap: 8px;
   }
 
@@ -1103,30 +1136,31 @@ button {
   }
 
   .product-grid--launch .badge {
-    min-height: 24px;
-    padding: 0 8px;
-    font-size: 0.72rem;
+    min-height: 22px;
+    padding: 0 7px;
+    font-size: 0.68rem;
   }
 
   .product-grid--launch .dose-info {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
+    gap: 5px;
+    padding: 6px;
   }
 
   .product-grid--launch .dose-info strong {
-    font-size: 0.82rem;
+    font-size: 0.74rem;
     white-space: normal;
   }
 
   .product-grid--launch .product-card__actions {
     grid-template-columns: 1fr 1fr;
-    gap: 7px;
+    gap: 6px;
   }
 
   .product-grid--launch .product-card__actions .button {
-    min-height: 42px;
-    padding: 0 8px;
-    font-size: 0.92rem;
+    min-height: 38px;
+    padding: 0 7px;
+    font-size: 0.84rem;
   }
 
   .product-grid--launch .product-card__actions .button--ghost {

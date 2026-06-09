@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.9";
+  const APP_VERSION = "V.2.10";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [

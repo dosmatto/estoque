@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.3";
+  const APP_VERSION = "V.2.4";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -299,7 +299,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   function formatDate(value) {
     return new Intl.DateTimeFormat("pt-BR", {
       dateStyle: "short",
-      timeStyle: "short"
+      timeStyle: "medium"
     }).format(new Date(value));
   }
 
@@ -713,8 +713,19 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     return new Date(Math.max(...dates)).toISOString();
   }
 
+  function latestUpdateForFarm(farm) {
+    if (!farm) return "";
+    const dates = [
+      farm.lastUpdatedAt,
+      ...state.movements.filter((movement) => movement.farmId === farm.id).map((movement) => movement.createdAt)
+    ].filter(Boolean).map((value) => new Date(value).getTime()).filter(Number.isFinite);
+
+    if (!dates.length) return "";
+    return new Date(Math.max(...dates)).toISOString();
+  }
+
   function renderUpdatePanel(farm = null) {
-    const lastUpdate = farm?.lastUpdatedAt || latestUpdateForAccount();
+    const lastUpdate = farm ? latestUpdateForFarm(farm) : latestUpdateForAccount();
     return `
       <section class="status-panel">
         <div class="status-item">

@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.10";
+  const APP_VERSION = "V.2.11";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -625,15 +625,44 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             .primary { background: #1f7a4d; color: #fff; border-color: #1f7a4d; }
             @media print { .actions { display: none; } body { margin: 12mm; } }
           </style>
+          <script>
+            function exportExcel() {
+              const content = document.querySelector("#report-content").innerHTML;
+              const styles = [
+                "body { color: #172018; font-family: Arial, Helvetica, sans-serif; }",
+                "h1 { font-size: 20px; }",
+                "h2 { font-size: 16px; }",
+                ".farm-meta { margin: 0 0 10px; color: #475247; font-size: 12px; }",
+                ".farm-meta span { display: inline-block; margin: 0 8px 6px 0; }",
+                "table { border-collapse: collapse; width: 100%; margin-bottom: 18px; }",
+                "th, td { border: 1px solid #dce4da; padding: 8px; text-align: left; }",
+                "th { background: #eef3ed; font-weight: bold; }",
+                ".expired { color: #b5262f; font-weight: bold; }",
+                ".warning { color: #a76b00; font-weight: bold; }"
+              ].join("");
+              const html = '<html><head><meta charset="utf-8"><style>' + styles + '</style></head><body>' + content + '</body></html>';
+              const blob = new Blob(["\\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8;" });
+              const link = document.createElement("a");
+              link.href = URL.createObjectURL(blob);
+              link.download = "relatorio-estoque-" + new Date().toISOString().slice(0, 10) + ".xls";
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+            }
+          </script>
         </head>
         <body>
           <div class="actions">
             <button onclick="window.close(); if (!window.closed) history.back();">Voltar</button>
             <button class="primary" onclick="window.print()">Imprimir / Salvar PDF</button>
+            <button onclick="exportExcel()">Exportar Excel</button>
           </div>
-          <h1>Relatório de Estoque</h1>
-          <p>Gerado em ${escapeHtml(generatedAt)}</p>
-          ${farmSections}
+          <div id="report-content">
+            <h1>Relatório de Estoque</h1>
+            <p>Gerado em ${escapeHtml(generatedAt)}</p>
+            ${farmSections}
+          </div>
         </body>
       </html>
     `;

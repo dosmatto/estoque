@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.11";
+  const APP_VERSION = "V.2.12";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -680,6 +680,49 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     reportWindow.document.close();
   }
 
+  function exportReportExcel(farms, selectedCategories) {
+    const reportDocument = new DOMParser().parseFromString(reportHtml(farms, selectedCategories), "text/html");
+    const content = reportDocument.querySelector("#report-content")?.innerHTML || "";
+    const styles = [
+      "body { color: #172018; font-family: Arial, Helvetica, sans-serif; }",
+      "h1 { font-size: 20px; }",
+      "h2 { font-size: 16px; }",
+      ".farm-meta { margin: 0 0 10px; color: #475247; font-size: 12px; }",
+      ".farm-meta span { display: inline-block; margin: 0 8px 6px 0; }",
+      "table { border-collapse: collapse; width: 100%; margin-bottom: 18px; }",
+      "th, td { border: 1px solid #dce4da; padding: 8px; text-align: left; }",
+      "th { background: #eef3ed; font-weight: bold; }",
+      ".expired { color: #b5262f; font-weight: bold; }",
+      ".warning { color: #a76b00; font-weight: bold; }"
+    ].join("");
+    const html = `<html><head><meta charset="utf-8"><style>${styles}</style></head><body>${content}</body></html>`;
+    const blob = new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `relatorio-estoque-${new Date().toISOString().slice(0, 10)}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
+
+  function selectedAdminReportConfig() {
+    const farmsForAccount = visibleFarms();
+    const allFarmCheckbox = document.querySelector('[data-report-all="farms"]');
+    const allCategoryCheckbox = document.querySelector('[data-report-all="categories"]');
+    const farmIds = allFarmCheckbox?.checked
+      ? farmsForAccount.map((farm) => farm.id)
+      : Array.from(document.querySelectorAll('input[name="reportFarmId"]:checked')).map((input) => input.value);
+    const selectedCategories = allCategoryCheckbox?.checked
+      ? categories.map((category) => category.name)
+      : Array.from(document.querySelectorAll('input[name="reportCategory"]:checked')).map((input) => input.value);
+
+    return {
+      farms: farmsForAccount.filter((farm) => farmIds.includes(farm.id)),
+      selectedCategories
+    };
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, "&amp;")
@@ -1122,7 +1165,10 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             <h2 class="panel__title">Relatórios</h2>
             <p class="panel__hint">Escolha uma ou mais fazendas para gerar a relação de produtos em estoque.</p>
           </div>
-          <button class="button button--primary" data-action="generate-admin-report">Gerar relatório</button>
+          <div class="panel__actions">
+            <button class="button button--ghost" data-action="generate-admin-excel">Exportar Excel</button>
+            <button class="button button--primary" data-action="generate-admin-report">Gerar relatório</button>
+          </div>
         </div>
         <div class="report-options">
           <div>
@@ -1934,16 +1980,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     }
 
     if (action === "generate-admin-report") {
-      const farmsForAccount = visibleFarms();
-      const allFarmCheckbox = document.querySelector('[data-report-all="farms"]');
-      const allCategoryCheckbox = document.querySelector('[data-report-all="categories"]');
-      const farmIds = allFarmCheckbox?.checked
-        ? farmsForAccount.map((farm) => farm.id)
-        : Array.from(document.querySelectorAll('input[name="reportFarmId"]:checked')).map((input) => input.value);
-      const selectedCategories = allCategoryCheckbox?.checked
-        ? categories.map((category) => category.name)
-        : Array.from(document.querySelectorAll('input[name="reportCategory"]:checked')).map((input) => input.value);
-      const farms = farmsForAccount.filter((farm) => farmIds.includes(farm.id));
+      const { farms, selectedCategories } = selectedAdminReportConfig();
 
       if (!farms.length) {
         alert("Selecione pelo menos uma fazenda para gerar o relatório.");
@@ -1956,6 +1993,22 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       }
 
       openReport(farms, selectedCategories);
+    }
+
+    if (action === "generate-admin-excel") {
+      const { farms, selectedCategories } = selectedAdminReportConfig();
+
+      if (!farms.length) {
+        alert("Selecione pelo menos uma fazenda para exportar.");
+        return;
+      }
+
+      if (!selectedCategories.length) {
+        alert("Selecione pelo menos uma categoria para exportar.");
+        return;
+      }
+
+      exportReportExcel(farms, selectedCategories);
     }
 
     if (action === "generate-farm-report") {

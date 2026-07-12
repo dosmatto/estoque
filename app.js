@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.12";
+  const APP_VERSION = "V.2.13";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -295,6 +295,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       minimumFractionDigits: 0,
       maximumFractionDigits: 2
     });
+  }
+
+  function excelNumber(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return "";
+    // Vírgula decimal e sem separador de milhar: Excel pt-BR reconhece como número.
+    return String(Math.round(parsed * 100) / 100).replace(".", ",");
   }
 
   function formatDate(value) {
@@ -626,22 +633,9 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             @media print { .actions { display: none; } body { margin: 12mm; } }
           </style>
           <script>
+            const excelHtml = ${JSON.stringify(reportExcelHtml(farms, selectedCategories)).replace(/<\//g, "<\\/")};
             function exportExcel() {
-              const content = document.querySelector("#report-content").innerHTML;
-              const styles = [
-                "body { color: #172018; font-family: Arial, Helvetica, sans-serif; }",
-                "h1 { font-size: 20px; }",
-                "h2 { font-size: 16px; }",
-                ".farm-meta { margin: 0 0 10px; color: #475247; font-size: 12px; }",
-                ".farm-meta span { display: inline-block; margin: 0 8px 6px 0; }",
-                "table { border-collapse: collapse; width: 100%; margin-bottom: 18px; }",
-                "th, td { border: 1px solid #dce4da; padding: 8px; text-align: left; }",
-                "th { background: #eef3ed; font-weight: bold; }",
-                ".expired { color: #b5262f; font-weight: bold; }",
-                ".warning { color: #a76b00; font-weight: bold; }"
-              ].join("");
-              const html = '<html><head><meta charset="utf-8"><style>' + styles + '</style></head><body>' + content + '</body></html>';
-              const blob = new Blob(["\\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8;" });
+              const blob = new Blob(["\\ufeff", excelHtml], { type: "application/vnd.ms-excel;charset=utf-8;" });
               const link = document.createElement("a");
               link.href = URL.createObjectURL(blob);
               link.download = "relatorio-estoque-" + new Date().toISOString().slice(0, 10) + ".xls";
@@ -668,6 +662,72 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     `;
   }
 
+  function reportExcelHtml(farms, selectedCategories = categories.map((category) => category.name)) {
+    const headerCells = [
+      "Fazenda",
+      "Categoria",
+      "Produto",
+      "Quantidade",
+      "Unidade",
+      "Dose",
+      "Unidade dose",
+      "Área estimada",
+      "Unidade área",
+      "Vencimento",
+      "Status vencimento",
+      "Última atualização",
+      "Conferência física"
+    ].map((title) => `<th>${title}</th>`).join("");
+
+    const rows = farms.map((farm) => {
+      const lastUpdate = formatOptionalDateTime(latestUpdateForFarm(farm));
+      const physicalReview = farm.physicalReviewDate ? formatDateOnly(farm.physicalReviewDate) : "Não informada";
+      return reportProductsForFarm(farm, selectedCategories).map((product) => {
+        const hectares = hectaresFor(product.qty, product.dose);
+        const expiry = expiryStatus(product.expiryDate);
+        const statusLabel = expiry.status === "expired"
+          ? "Vencido"
+          : expiry.status === "warning"
+            ? "Próximo do vencimento"
+            : expiry.status === "ok"
+              ? "OK"
+              : "Sem vencimento";
+        const statusStyle = expiry.status === "expired"
+          ? "color:#b5262f;font-weight:bold;"
+          : expiry.status === "warning"
+            ? "color:#a76b00;font-weight:bold;"
+            : "";
+        const unit = productUnit(product);
+        return `
+          <tr style="background:${categorySoftColor(product.category)}">
+            <td>${escapeHtml(farm.name)}</td>
+            <td>${escapeHtml(product.category)}</td>
+            <td>${escapeHtml(product.name)}</td>
+            <td>${excelNumber(product.qty)}</td>
+            <td>${escapeHtml(unit)}</td>
+            <td>${product.dose ? excelNumber(product.dose) : ""}</td>
+            <td>${product.dose ? escapeHtml(`${unit}/ha`) : ""}</td>
+            <td>${hectares === null ? "" : excelNumber(hectares)}</td>
+            <td>${hectares === null ? "" : "ha"}</td>
+            <td>${product.expiryDate ? escapeHtml(formatDateOnly(product.expiryDate)) : ""}</td>
+            <td style="${statusStyle}">${statusLabel}</td>
+            <td>${escapeHtml(lastUpdate)}</td>
+            <td>${escapeHtml(physicalReview)}</td>
+          </tr>
+        `;
+      }).join("");
+    }).join("");
+
+    const styles = [
+      "body { color: #172018; font-family: Arial, Helvetica, sans-serif; }",
+      "table { border-collapse: collapse; }",
+      "th, td { border: 1px solid #dce4da; padding: 6px 8px; text-align: left; }",
+      "th { background: #eef3ed; font-weight: bold; }"
+    ].join("");
+
+    return `<html><head><meta charset="utf-8"><style>${styles}</style></head><body><table><thead><tr>${headerCells}</tr></thead><tbody>${rows || `<tr><td colspan="13">Sem produtos em estoque.</td></tr>`}</tbody></table></body></html>`;
+  }
+
   function openReport(farms, selectedCategories) {
     const reportWindow = window.open("", "_blank");
     if (!reportWindow) {
@@ -681,21 +741,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   }
 
   function exportReportExcel(farms, selectedCategories) {
-    const reportDocument = new DOMParser().parseFromString(reportHtml(farms, selectedCategories), "text/html");
-    const content = reportDocument.querySelector("#report-content")?.innerHTML || "";
-    const styles = [
-      "body { color: #172018; font-family: Arial, Helvetica, sans-serif; }",
-      "h1 { font-size: 20px; }",
-      "h2 { font-size: 16px; }",
-      ".farm-meta { margin: 0 0 10px; color: #475247; font-size: 12px; }",
-      ".farm-meta span { display: inline-block; margin: 0 8px 6px 0; }",
-      "table { border-collapse: collapse; width: 100%; margin-bottom: 18px; }",
-      "th, td { border: 1px solid #dce4da; padding: 8px; text-align: left; }",
-      "th { background: #eef3ed; font-weight: bold; }",
-      ".expired { color: #b5262f; font-weight: bold; }",
-      ".warning { color: #a76b00; font-weight: bold; }"
-    ].join("");
-    const html = `<html><head><meta charset="utf-8"><style>${styles}</style></head><body>${content}</body></html>`;
+    const html = reportExcelHtml(farms, selectedCategories);
     const blob = new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);

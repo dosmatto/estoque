@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.13";
+  const APP_VERSION = "V.2.14";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -112,10 +112,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             dose: 0,
             expiryDate: ""
           })),
-          doses: {}
+          doses: {},
+          talhoes: [],
+          aduboStocks: []
         }
       ],
-      movements: []
+      movements: [],
+      aduboMovements: []
     };
   }
 
@@ -161,11 +164,20 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       ...farm,
       ownerId: farm.ownerId || MASTER_ACCOUNT_ID,
       stockLots: normalizeStockLots(farm),
+      talhoes: Array.isArray(farm.talhoes) ? farm.talhoes : [],
+      aduboStocks: Array.isArray(farm.aduboStocks) ? farm.aduboStocks : [],
       physicalReviewDate: normalizeDateInput(farm.physicalReviewDate),
       lastUpdatedAt: farm.lastUpdatedAt || ""
     }));
     data.farms.forEach(syncFarmStockFromLots);
     data.movements = (data.movements || []).map((movement) => {
+      const farm = data.farms.find((item) => item.id === movement.farmId);
+      return {
+        ...movement,
+        ownerId: movement.ownerId || farm?.ownerId || MASTER_ACCOUNT_ID
+      };
+    });
+    data.aduboMovements = (data.aduboMovements || []).map((movement) => {
       const farm = data.farms.find((item) => item.id === movement.farmId);
       return {
         ...movement,
@@ -503,6 +515,56 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   function productUnit(product) {
     return units.includes(product.unit) ? product.unit : "L / Kg";
+  }
+
+  function ensureAduboData(farm) {
+    if (!Array.isArray(farm.talhoes)) farm.talhoes = [];
+    if (!Array.isArray(farm.aduboStocks)) farm.aduboStocks = [];
+    if (!Array.isArray(state.aduboMovements)) state.aduboMovements = [];
+  }
+
+  function aduboNameSuggestions() {
+    const names = new Map();
+    state.farms.forEach((farm) => {
+      (farm.aduboStocks || []).forEach((item) => names.set(normalizeText(item.name), item.name));
+    });
+    (state.aduboMovements || []).forEach((item) => names.set(normalizeText(item.aduboName), item.aduboName));
+    return [...names.values()].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }
+
+  function addAduboMovement({ farmId, talhaoId, aduboName, type, quantityKg, note }) {
+    const farm = state.farms.find((item) => item.id === farmId);
+    if (!farm) return;
+    ensureAduboData(farm);
+    const talhao = farm.talhoes.find((item) => item.id === talhaoId);
+    const name = String(aduboName || "").trim();
+    const parsedQty = Number(quantityKg) || 0;
+    let stock = farm.aduboStocks.find((item) => item.talhaoId === talhaoId && normalizeText(item.name) === normalizeText(name));
+    if (!stock) {
+      stock = { id: makeId("adubo"), name, talhaoId, quantityKg: 0 };
+      farm.aduboStocks.push(stock);
+    }
+    const currentKg = Number(stock.quantityKg || 0);
+    let nextKg = currentKg;
+    if (type === "entrada") nextKg += parsedQty;
+    if (type === "baixa") nextKg = Math.max(0, nextKg - parsedQty);
+    stock.quantityKg = nextKg;
+    farm.aduboStocks = farm.aduboStocks.filter((item) => Number(item.quantityKg || 0) > 0);
+    markFarmUpdated(farm);
+    state.aduboMovements.push({
+      id: makeId("amov"),
+      farmId,
+      ownerId: farm.ownerId,
+      talhaoId,
+      talhaoName: talhao?.name || "",
+      aduboName: stock.name,
+      type,
+      quantityKg: parsedQty,
+      previousKg: currentKg,
+      nextKg,
+      note: note || "",
+      createdAt: new Date().toISOString()
+    });
   }
 
   function normalizeText(value) {
@@ -931,6 +993,12 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             </div>
           </div>
           <div class="tabs__group">
+            <span class="tabs__label">Adubo</span>
+            <div class="tabs__buttons">
+              ${tabButton("adubo", "Estoque de adubo")}
+            </div>
+          </div>
+          <div class="tabs__group">
             <span class="tabs__label">Gestão</span>
             <div class="tabs__buttons">
               ${tabButton("produtos", "Lista mestre")}
@@ -952,6 +1020,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (currentTab === "lancamentos") return renderFarmLaunchesAdmin();
     if (currentTab === "historico") return renderFarmHistoryAdmin();
     if (currentTab === "consolidado") return renderConsolidated();
+    if (currentTab === "adubo") return renderAduboAdmin();
     if (currentTab === "produtos") return renderMasterProducts();
     if (currentTab === "relatorios") return renderReports();
     if (currentTab === "subadmins" && isMasterAccount()) return renderSubAdmins();
@@ -1266,7 +1335,12 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       content: `
         ${renderUpdatePanel(farm)}
         ${renderFarmViewTabs()}
-        ${isLaunches ? `
+        ${currentFarmView === "adubo" ? `
+          <section class="panel quick-actions">
+            <button class="button button--primary" data-action="adubo-entrada" data-farm-id="${farm.id}">+ Entrada de adubo</button>
+            <button class="button button--ghost" data-action="new-talhao" data-farm-id="${farm.id}">+ Novo talhão</button>
+          </section>
+        ` : isLaunches ? `
           <section class="panel quick-actions">
             <button class="button button--primary" data-action="add-product-farm" data-farm-id="${farm.id}">+ Adicionar produto</button>
             <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
@@ -1276,7 +1350,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             <button class="button button--ghost" data-action="generate-farm-report" data-farm-id="${farm.id}">Relatório</button>
           </section>
         `}
-        ${currentFarmView === "historico" ? "" : `
+        ${currentFarmView === "historico" || currentFarmView === "adubo" ? "" : `
           ${renderFilters()}
           ${renderProductSearch()}
         `}
@@ -1284,6 +1358,9 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           <div data-product-grid>${renderProductGrid(farm)}</div>
         ` : currentFarmView === "historico" ? `
           ${renderHistory(farm)}
+        ` : currentFarmView === "adubo" ? `
+          ${renderAduboSummary(farm)}
+          ${renderAduboHistory(farm)}
         ` : `
           <div data-stock-summary>${renderStockSummary(farm)}</div>
         `}
@@ -1297,8 +1374,235 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         <button class="view-tab ${currentFarmView === "estoque" ? "is-active" : ""}" data-farm-view="estoque">Estoque</button>
         <button class="view-tab ${currentFarmView === "lancamentos" ? "is-active" : ""}" data-farm-view="lancamentos">Lançamentos</button>
         <button class="view-tab ${currentFarmView === "historico" ? "is-active" : ""}" data-farm-view="historico">Histórico</button>
+        <button class="view-tab ${currentFarmView === "adubo" ? "is-active" : ""}" data-farm-view="adubo">Adubo</button>
       </nav>
     `;
+  }
+
+  function renderAduboAdmin() {
+    const farms = visibleFarms();
+    const farm = farms.find((item) => item.id === selectedFarmId);
+    if (!farm) return `<div class="empty">Crie uma fazenda para controlar o adubo.</div>`;
+    ensureAduboData(farm);
+
+    return `
+      ${renderUpdatePanel(farm)}
+      <section class="panel">
+        <div class="panel__header">
+          <div>
+            <h2 class="panel__title">Adubo - ${farm.name}</h2>
+            <p class="panel__hint">Entrada do adubo por talhão e baixas conforme a aplicação. Quantidades em Kg.</p>
+          </div>
+          <div class="panel__actions">
+            <select data-action="select-farm">
+              ${farms.map((item) => `<option value="${item.id}" ${item.id === farm.id ? "selected" : ""}>${item.name}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+      </section>
+      <section class="panel quick-actions">
+        <button class="button button--primary" data-action="adubo-entrada" data-farm-id="${farm.id}">+ Entrada de adubo</button>
+        <button class="button button--ghost" data-action="new-talhao" data-farm-id="${farm.id}">+ Novo talhão</button>
+      </section>
+      ${renderAduboSummary(farm)}
+      ${renderAduboHistory(farm)}
+    `;
+  }
+
+  function renderAduboSummary(farm) {
+    ensureAduboData(farm);
+    const talhoes = farm.talhoes.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    if (!talhoes.length) {
+      return `<section class="panel"><div class="empty">Cadastre os talhões da fazenda para começar a lançar adubo.</div></section>`;
+    }
+
+    const totalKg = farm.aduboStocks.reduce((sum, item) => sum + Number(item.quantityKg || 0), 0);
+
+    return `
+      <section class="panel stock-summary">
+        <div class="panel__header">
+          <div>
+            <h2 class="panel__title">Adubo por talhão</h2>
+            <p class="panel__hint">Saldo disponível em cada talhão.</p>
+          </div>
+          <strong>${formatQty(totalKg)} Kg</strong>
+        </div>
+        <div class="summary-categories">
+          ${talhoes.map((talhao) => {
+            const stocks = farm.aduboStocks
+              .filter((item) => item.talhaoId === talhao.id)
+              .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+            const talhaoTotal = stocks.reduce((sum, item) => sum + Number(item.quantityKg || 0), 0);
+            return `
+              <div class="summary-category" style="--category-color: #8a5a2b">
+                <div class="summary-category__header">
+                  <span class="badge">${escapeHtml(talhao.name)}${talhao.areaHa ? ` - ${formatQty(talhao.areaHa)} ha` : ""}</span>
+                  <strong>${formatQty(talhaoTotal)} Kg</strong>
+                </div>
+                <div class="list">
+                  ${stocks.map((stock) => `
+                    <div class="list-row">
+                      <div>
+                        <div class="list-row__title">${escapeHtml(stock.name)}</div>
+                        <div class="list-row__meta">Saldo: ${formatQty(stock.quantityKg)} Kg</div>
+                      </div>
+                      <div class="farm-card__actions">
+                        <button class="button button--ghost" data-action="adubo-entrada" data-farm-id="${farm.id}" data-stock-id="${stock.id}">+ Entrada</button>
+                        <button class="button button--danger" data-action="adubo-baixa" data-farm-id="${farm.id}" data-stock-id="${stock.id}">Dar baixa</button>
+                      </div>
+                    </div>
+                  `).join("") || `<div class="empty">Sem adubo neste talhão.</div>`}
+                </div>
+                <button class="button button--ghost" data-action="edit-talhao" data-farm-id="${farm.id}" data-talhao-id="${talhao.id}">Editar talhão</button>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderAduboHistory(farm) {
+    const rows = (state.aduboMovements || [])
+      .filter((item) => item.farmId === farm.id)
+      .slice()
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 40);
+
+    return `
+      <section class="panel">
+        <div class="panel__header">
+          <div>
+            <h2 class="panel__title">Histórico de adubo</h2>
+            <p class="panel__hint">Entradas e baixas por talhão.</p>
+          </div>
+        </div>
+        <div class="list">
+          ${rows.map((item) => `
+            <div class="list-row">
+              <div>
+                <div class="list-row__title">${escapeHtml(item.aduboName)} - ${escapeHtml(item.talhaoName || "Talhão removido")}</div>
+                <div class="list-row__meta">${formatDate(item.createdAt)} - ${item.type}${item.note ? ` - ${escapeHtml(item.note)}` : ""}</div>
+              </div>
+              <strong>${item.type === "baixa" ? "-" : "+"}${formatQty(item.quantityKg)} Kg</strong>
+            </div>
+          `).join("") || `<div class="empty">Nenhum lançamento de adubo ainda.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  function openTalhaoModal(farm, talhao) {
+    openModal({
+      title: talhao ? "Editar talhão" : "Novo talhão",
+      submitLabel: talhao ? "Salvar" : "Criar talhão",
+      fields: `
+        <label class="field">
+          <span>Nome do talhão</span>
+          <input name="name" required value="${escapeHtml(talhao?.name || "")}" placeholder="Ex: Talhão 01">
+        </label>
+        <label class="field">
+          <span>Área em hectares (opcional)</span>
+          <input name="areaHa" type="text" inputmode="decimal" pattern="[0-9]+([,.][0-9]+)?" value="${talhao?.areaHa ? formatQty(talhao.areaHa) : ""}" placeholder="Ex: 35">
+        </label>
+      `,
+      onSubmit(data) {
+        const name = String(data.name || "").trim();
+        if (!name) return false;
+        ensureAduboData(farm);
+        const areaHa = parseDecimal(data.areaHa) || 0;
+        if (talhao) {
+          talhao.name = name;
+          talhao.areaHa = areaHa;
+        } else {
+          farm.talhoes.push({ id: makeId("talhao"), name, areaHa, createdAt: new Date().toISOString() });
+        }
+        markFarmUpdated(farm);
+      }
+    });
+  }
+
+  function openAduboEntradaModal(farm, stock) {
+    ensureAduboData(farm);
+    if (!farm.talhoes.length) {
+      openTalhaoModal(farm);
+      return;
+    }
+
+    const suggestions = aduboNameSuggestions();
+    openModal({
+      title: "Entrada de adubo",
+      submitLabel: "Lançar entrada",
+      fields: `
+        <label class="field">
+          <span>Adubo</span>
+          <input name="aduboName" required list="adubo-name-list" value="${escapeHtml(stock?.name || "")}" placeholder="Ex: Ureia, MAP, 20-05-20">
+          <datalist id="adubo-name-list">
+            ${suggestions.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}
+          </datalist>
+        </label>
+        <label class="field">
+          <span>Talhão</span>
+          <select name="talhaoId" required>
+            ${farm.talhoes.map((talhao) => `<option value="${talhao.id}" ${stock?.talhaoId === talhao.id ? "selected" : ""}>${escapeHtml(talhao.name)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="field">
+          <span>Quantidade (Kg)</span>
+          <input name="quantityKg" type="text" required inputmode="decimal" pattern="[0-9]+([,.][0-9]+)?">
+        </label>
+        <label class="field">
+          <span>Observação</span>
+          <textarea name="note" placeholder="Opcional"></textarea>
+        </label>
+      `,
+      onSubmit(data) {
+        const quantityKg = parseDecimal(data.quantityKg);
+        if (!quantityKg || quantityKg <= 0) return false;
+        addAduboMovement({
+          farmId: farm.id,
+          talhaoId: data.talhaoId,
+          aduboName: data.aduboName,
+          type: "entrada",
+          quantityKg,
+          note: data.note
+        });
+      }
+    });
+  }
+
+  function openAduboBaixaModal(farm, stock) {
+    const talhao = farm.talhoes.find((item) => item.id === stock.talhaoId);
+    openModal({
+      title: "Baixa de adubo",
+      submitLabel: "Dar baixa",
+      fields: `
+        <div class="field">
+          <label>${escapeHtml(stock.name)} - ${escapeHtml(talhao?.name || "Talhão removido")}</label>
+          <div class="panel__hint">Saldo atual: ${formatQty(stock.quantityKg)} Kg</div>
+        </div>
+        <label class="field">
+          <span>Quantidade aplicada (Kg)</span>
+          <input name="quantityKg" type="text" required inputmode="decimal" pattern="[0-9]+([,.][0-9]+)?">
+        </label>
+        <label class="field">
+          <span>Observação</span>
+          <textarea name="note" placeholder="Opcional"></textarea>
+        </label>
+      `,
+      onSubmit(data) {
+        const quantityKg = parseDecimal(data.quantityKg);
+        if (!quantityKg || quantityKg <= 0) return false;
+        addAduboMovement({
+          farmId: farm.id,
+          talhaoId: stock.talhaoId,
+          aduboName: stock.name,
+          type: "baixa",
+          quantityKg,
+          note: data.note
+        });
+      }
+    });
   }
 
   function renderFilters() {
@@ -1964,7 +2268,9 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
             createdAt: new Date().toISOString(),
             stock: {},
             stockLots: [],
-            doses: {}
+            doses: {},
+            talhoes: [],
+            aduboStocks: []
           };
           markFarmUpdated(farm);
           state.farms.push(farm);
@@ -2002,6 +2308,26 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     if (action === "open-reports-tab") {
       currentTab = "relatorios";
       route();
+    }
+
+    if (action === "new-talhao" || action === "edit-talhao" || action === "adubo-entrada" || action === "adubo-baixa") {
+      const farm = state.farms.find((item) => item.id === button.dataset.farmId);
+      if (!farm) return;
+      ensureAduboData(farm);
+      if (action === "new-talhao") openTalhaoModal(farm);
+      if (action === "edit-talhao") {
+        const talhao = farm.talhoes.find((item) => item.id === button.dataset.talhaoId);
+        if (talhao) openTalhaoModal(farm, talhao);
+      }
+      if (action === "adubo-entrada") {
+        const stock = farm.aduboStocks.find((item) => item.id === button.dataset.stockId);
+        openAduboEntradaModal(farm, stock);
+      }
+      if (action === "adubo-baixa") {
+        const stock = farm.aduboStocks.find((item) => item.id === button.dataset.stockId);
+        if (stock) openAduboBaixaModal(farm, stock);
+      }
+      return;
     }
 
     if (action === "edit-physical-review") {

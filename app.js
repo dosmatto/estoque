@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.15";
+  const APP_VERSION = "V.2.16";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -536,12 +536,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     const farm = state.farms.find((item) => item.id === farmId);
     if (!farm) return;
     ensureAduboData(farm);
-    const talhao = farm.talhoes.find((item) => item.id === talhaoId);
+    const talhaoKey = talhaoId || "";
+    const talhao = farm.talhoes.find((item) => item.id === talhaoKey);
     const name = String(aduboName || "").trim();
     const parsedQty = Number(quantityKg) || 0;
-    let stock = farm.aduboStocks.find((item) => item.talhaoId === talhaoId && normalizeText(item.name) === normalizeText(name));
+    let stock = farm.aduboStocks.find((item) => (item.talhaoId || "") === talhaoKey && normalizeText(item.name) === normalizeText(name));
     if (!stock) {
-      stock = { id: makeId("adubo"), name, talhaoId, quantityKg: 0 };
+      stock = { id: makeId("adubo"), name, talhaoId: talhaoKey, quantityKg: 0 };
       farm.aduboStocks.push(stock);
     }
     const currentKg = Number(stock.quantityKg || 0);
@@ -555,7 +556,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       id: makeId("amov"),
       farmId,
       ownerId: farm.ownerId,
-      talhaoId,
+      talhaoId: talhaoKey,
       talhaoName: talhao?.name || "",
       aduboName: stock.name,
       type,
@@ -1391,7 +1392,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
         <div class="panel__header">
           <div>
             <h2 class="panel__title">Adubo - ${farm.name}</h2>
-            <p class="panel__hint">Entrada do adubo por talhão e baixas conforme a aplicação. Quantidades em Kg.</p>
+            <p class="panel__hint">Entrada do adubo pela fazenda inteira ou por talhão; baixas conforme a aplicação. Quantidades em Kg.</p>
           </div>
           <div class="panel__actions">
             <select data-action="select-farm">
@@ -1412,16 +1413,11 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   function renderAduboSummary(farm) {
     ensureAduboData(farm);
     const talhoes = farm.talhoes.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-    if (!talhoes.length) {
-      return `
-        <section class="panel">
-          <div class="empty">Cadastre os talhões da fazenda para começar a lançar adubo. Cada talhão terá seu próprio saldo de adubo.</div>
-          <button class="button button--primary" data-action="new-talhao" data-farm-id="${farm.id}">+ Criar primeiro talhão</button>
-        </section>
-      `;
-    }
-
     const totalKg = farm.aduboStocks.reduce((sum, item) => sum + Number(item.quantityKg || 0), 0);
+    const geralStocks = farm.aduboStocks
+      .filter((item) => !item.talhaoId)
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    const geralTotal = geralStocks.reduce((sum, item) => sum + Number(item.quantityKg || 0), 0);
 
     return `
       <section class="panel stock-summary">
@@ -1433,6 +1429,15 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           <strong>${formatQty(totalKg)} Kg</strong>
         </div>
         <div class="summary-categories">
+          <div class="summary-category" style="--category-color: #1f7a4d">
+            <div class="summary-category__header">
+              <span class="badge">Fazenda inteira</span>
+              <strong>${formatQty(geralTotal)} Kg</strong>
+            </div>
+            <div class="list">
+              ${geralStocks.map((stock) => aduboStockRow(farm, stock)).join("") || `<div class="empty">Sem adubo lançado para a fazenda inteira.</div>`}
+            </div>
+          </div>
           ${talhoes.map((talhao) => {
             const stocks = farm.aduboStocks
               .filter((item) => item.talhaoId === talhao.id)
@@ -1445,18 +1450,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
                   <strong>${formatQty(talhaoTotal)} Kg</strong>
                 </div>
                 <div class="list">
-                  ${stocks.map((stock) => `
-                    <div class="list-row">
-                      <div>
-                        <div class="list-row__title">${escapeHtml(stock.name)}</div>
-                        <div class="list-row__meta">Saldo: ${formatQty(stock.quantityKg)} Kg</div>
-                      </div>
-                      <div class="farm-card__actions">
-                        <button class="button button--ghost" data-action="adubo-entrada" data-farm-id="${farm.id}" data-stock-id="${stock.id}">+ Entrada</button>
-                        <button class="button button--danger" data-action="adubo-baixa" data-farm-id="${farm.id}" data-stock-id="${stock.id}">Dar baixa</button>
-                      </div>
-                    </div>
-                  `).join("") || `<div class="empty">Sem adubo neste talhão.</div>`}
+                  ${stocks.map((stock) => aduboStockRow(farm, stock)).join("") || `<div class="empty">Sem adubo neste talhão.</div>`}
                 </div>
                 <button class="button button--ghost" data-action="edit-talhao" data-farm-id="${farm.id}" data-talhao-id="${talhao.id}">Editar talhão</button>
               </div>
@@ -1464,6 +1458,27 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           }).join("")}
         </div>
       </section>
+      ${!talhoes.length ? `
+        <section class="panel">
+          <div class="empty">Você também pode controlar por talhão: cadastre os talhões da fazenda e cada um terá seu próprio saldo de adubo.</div>
+          <button class="button button--primary" data-action="new-talhao" data-farm-id="${farm.id}">+ Criar primeiro talhão</button>
+        </section>
+      ` : ""}
+    `;
+  }
+
+  function aduboStockRow(farm, stock) {
+    return `
+      <div class="list-row">
+        <div>
+          <div class="list-row__title">${escapeHtml(stock.name)}</div>
+          <div class="list-row__meta">Saldo: ${formatQty(stock.quantityKg)} Kg</div>
+        </div>
+        <div class="farm-card__actions">
+          <button class="button button--ghost" data-action="adubo-entrada" data-farm-id="${farm.id}" data-stock-id="${stock.id}">+ Entrada</button>
+          <button class="button button--danger" data-action="adubo-baixa" data-farm-id="${farm.id}" data-stock-id="${stock.id}">Dar baixa</button>
+        </div>
+      </div>
     `;
   }
 
@@ -1486,7 +1501,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           ${rows.map((item) => `
             <div class="list-row">
               <div>
-                <div class="list-row__title">${escapeHtml(item.aduboName)} - ${escapeHtml(item.talhaoName || "Talhão removido")}</div>
+                <div class="list-row__title">${escapeHtml(item.aduboName)} - ${escapeHtml(item.talhaoId ? (item.talhaoName || "Talhão removido") : "Fazenda inteira")}</div>
                 <div class="list-row__meta">${formatDate(item.createdAt)} - ${item.type}${item.note ? ` - ${escapeHtml(item.note)}` : ""}</div>
               </div>
               <strong>${item.type === "baixa" ? "-" : "+"}${formatQty(item.quantityKg)} Kg</strong>
@@ -1530,11 +1545,6 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   function openAduboEntradaModal(farm, stock) {
     ensureAduboData(farm);
-    if (!farm.talhoes.length) {
-      openTalhaoModal(farm);
-      return;
-    }
-
     const suggestions = aduboNameSuggestions();
     openModal({
       title: "Entrada de adubo",
@@ -1548,8 +1558,9 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
           </datalist>
         </label>
         <label class="field">
-          <span>Talhão</span>
-          <select name="talhaoId" required>
+          <span>Destino</span>
+          <select name="talhaoId">
+            <option value="" ${stock && !stock.talhaoId ? "selected" : ""}>Fazenda inteira (sem talhão)</option>
             ${farm.talhoes.map((talhao) => `<option value="${talhao.id}" ${stock?.talhaoId === talhao.id ? "selected" : ""}>${escapeHtml(talhao.name)}</option>`).join("")}
           </select>
         </label>
@@ -1579,12 +1590,13 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
 
   function openAduboBaixaModal(farm, stock) {
     const talhao = farm.talhoes.find((item) => item.id === stock.talhaoId);
+    const destino = stock.talhaoId ? (talhao?.name || "Talhão removido") : "Fazenda inteira";
     openModal({
       title: "Baixa de adubo",
       submitLabel: "Dar baixa",
       fields: `
         <div class="field">
-          <label>${escapeHtml(stock.name)} - ${escapeHtml(talhao?.name || "Talhão removido")}</label>
+          <label>${escapeHtml(stock.name)} - ${escapeHtml(destino)}</label>
           <div class="panel__hint">Saldo atual: ${formatQty(stock.quantityKg)} Kg</div>
         </div>
         <label class="field">

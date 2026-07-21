@@ -29,8 +29,11 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const sameOrigin = new URL(event.request.url).origin === self.location.origin;
   event.respondWith(
-    fetch(event.request)
+    // "no-cache" força revalidação no servidor (ETag) em vez de aceitar o max-age
+    // do GitHub Pages, senão atualizações demoram até 10 min para chegar.
+    (sameOrigin ? fetch(event.request.url, { cache: "no-cache" }) : fetch(event.request))
       .then((response) => {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));

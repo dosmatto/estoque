@@ -5,7 +5,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
   const ADMIN_TOKEN = "ADMIN-TESTE-2026";
   const MASTER_ACCOUNT_ID = "master";
   const FIREBASE_DOC_PATH = ["appState", "main"];
-  const APP_VERSION = "V.2.14";
+  const APP_VERSION = "V.2.15";
   const EXPIRY_WARNING_DAYS = 30;
 
   const categories = [
@@ -1413,7 +1413,12 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
     ensureAduboData(farm);
     const talhoes = farm.talhoes.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     if (!talhoes.length) {
-      return `<section class="panel"><div class="empty">Cadastre os talhões da fazenda para começar a lançar adubo.</div></section>`;
+      return `
+        <section class="panel">
+          <div class="empty">Cadastre os talhões da fazenda para começar a lançar adubo. Cada talhão terá seu próprio saldo de adubo.</div>
+          <button class="button button--primary" data-action="new-talhao" data-farm-id="${farm.id}">+ Criar primeiro talhão</button>
+        </section>
+      `;
     }
 
     const totalKg = farm.aduboStocks.reduce((sum, item) => sum + Number(item.quantityKg || 0), 0);
@@ -1497,6 +1502,7 @@ import { USE_FIREBASE, firebaseConfig } from "./firebase-config.js";
       title: talhao ? "Editar talhão" : "Novo talhão",
       submitLabel: talhao ? "Salvar" : "Criar talhão",
       fields: `
+        ${!talhao && !farm.talhoes.length ? `<div class="panel__hint">Cadastre o primeiro talhão da fazenda. Depois, lance a entrada de adubo indicando o talhão de destino.</div>` : ""}
         <label class="field">
           <span>Nome do talhão</span>
           <input name="name" required value="${escapeHtml(talhao?.name || "")}" placeholder="Ex: Talhão 01">
